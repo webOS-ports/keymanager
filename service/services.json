@@ -1,0 +1,56 @@
+{
+	"id": "com.palm.keymanager",
+	"description": "Keymanager Service",
+	"engine": "node",
+	"activityTimeout": 30,
+	"services": [
+		{
+			"name": "com.palm.keymanager",
+			"description": "Keymanager Service",
+			"globalized": false,
+			"assistant": "KeyManagerServiceAssistant",
+			"commands": [
+				{
+					"name": "crypt",
+					"assistant": "CryptAssistant",
+					"public": true
+				},
+				{
+					"name": "export",
+					"assistant": "ExportAssistant",
+					"public": true
+				},
+				{
+					"name": "fetchKey",
+					"assistant": "FetchKeyAssistant",
+					"public": true
+				},
+				{
+					"name": "generate",
+					"assistant": "GenerateAssistant",
+					"public": true
+				},
+				{
+					"name": "import",
+					"assistant": "ImportAssistant",
+					"public": true
+				},
+				{
+					"name": "keyInfo",
+					"assistant": "KeyInfoAssistant",
+					"public": true
+				},
+				{
+					"name": "remove",
+					"assistant": "RemoveAssistant",
+					"public": true
+				},
+				{
+					"name": "store",
+					"assistant": "StoreAssistant",
+					"public": true
+				}
+			]
+		}
+	]
+}

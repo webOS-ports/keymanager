@@ -1,0 +1,44 @@
+[
+	{
+		"library": {
+			"name": "foundations",
+			"version": "1.0"
+		}
+	},
+	{
+		"source": "javascript/prologue.js"
+	},
+	{
+		"source": "javascript/utils/Common.js"
+	},
+	{
+		"source": "javascript/utils/KeyStore.js"
+	},
+	{
+		"source": "javascript/assistants/KeyManagerServiceAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/CryptAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/ExportAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/FetchKeyAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/GenerateAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/ImportAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/KeyInfoAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/RemoveAssistant.js"
+	},
+	{
+		"source": "javascript/assistants/StoreAssistant.js"
+	}
+]

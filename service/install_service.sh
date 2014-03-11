@@ -1,7 +1,7 @@
 
 #!/bin/sh
 
-FOLDER="org.webosports.service.keymanager"
+FOLDER="com.palm.keymanager"
 SID="com.palm.keymanager"
 
 

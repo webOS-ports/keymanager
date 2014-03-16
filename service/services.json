@@ -11,6 +11,11 @@
 			"assistant": "KeyManagerServiceAssistant",
 			"commands": [
 				{
+					"name": "initialize",
+					"assistant": "InitializeAssistant",
+					"public": false
+				},
+				{
 					"name": "crypt",
 					"assistant": "CryptAssistant",
 					"public": true

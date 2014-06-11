@@ -1,14 +1,13 @@
 /*jslint node: true */
 /*global getAppId, KeyStore, crypto, debug */
 
-/* Validate contact username/password */
 var CryptAssistant = function () {
     "use strict";
 };
 
 CryptAssistant.prototype.run = function (outerfuture) {
     "use strict";
-	var args = this.controller.args, future, appId;
+    var args = this.controller.args, future, appId;
 
     appId = getAppId(this.controller);
     if (!appId) {

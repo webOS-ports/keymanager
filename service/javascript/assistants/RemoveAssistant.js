@@ -1,14 +1,13 @@
 /*jslint node: true */
 /*global KeyStore, getAppId */
 
-/* Validate contact username/password */
 var RemoveAssistant = function () {
     "use strict";
 };
 
 RemoveAssistant.prototype.run = function (outerfuture) {
     "use strict";
-	var args = this.controller.args, appId;
+    var args = this.controller.args, appId;
 
     if (!args.keyname) {
         outerfuture.result = {returnValue: false, errorText: "Need keyname parameter."};

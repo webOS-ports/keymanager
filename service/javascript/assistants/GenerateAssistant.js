@@ -1,14 +1,13 @@
 /*jslint node: true */
 /*global getAppId, KeyStore, crypto, log */
 
-/* Validate contact username/password */
 var GenerateAssistant = function () {
     "use strict";
 };
 
 GenerateAssistant.prototype.run = function (outerfuture) {
     "use strict";
-	var args = this.controller.args, appId, key = {}, future;
+    var args = this.controller.args, appId, key = {}, future;
 
     appId = getAppId(this.controller);
     if (!appId) {

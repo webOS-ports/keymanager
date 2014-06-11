@@ -11,11 +11,10 @@ var Future = Foundations.Control.Future;
 
 //now add some node.js imports:
 if (typeof require === "undefined") {
-	require = IMPORTS.require;
+    require = IMPORTS.require;
 }
 var fs = require("fs"); //required for own node modules and current vCard converter.
 var crypto = require("crypto");
-//var sqlite3 = require("sqlite3").verbose();
 
 console.error("--------->Loaded Libraries OK1");
 
@@ -77,6 +76,6 @@ var log = logBase;
 var debug = dummy;
 
 process.on("uncaughtException", function (e) {
-	log("Uncaught error: " + e.stack);
-	//throw e;
+    log("Uncaught error: " + e.stack);
+    //throw e;
 });

@@ -1,14 +1,13 @@
 /*jslint node: true */
 /*global log, KeyStore, getAppId */
 
-/* Validate contact username/password */
 var StoreAssistant = function () {
     "use strict";
 };
 
 StoreAssistant.prototype.run = function (outerfuture) {
     "use strict";
-	var args = this.controller.args, key = {}, appId;
+    var args = this.controller.args, key = {}, appId;
 
     if (!args.keyname) {
         outerfuture.result = {returnValue: false, errorText: "Need keyname parameter"};

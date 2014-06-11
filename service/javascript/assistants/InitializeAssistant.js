@@ -1,5 +1,5 @@
 /*jslint node: true */
-/*global  */
+/*global log */
 
 var InitializeAssistant = function () {
     "use strict";

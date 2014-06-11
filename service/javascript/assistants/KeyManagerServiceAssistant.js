@@ -19,19 +19,34 @@ KeyManagerServiceAssistant.prototype.setup = function () {
 
     fs.exists(keystoreFolder, function existsCB(exists) {
         if (!exists) {
-            fs.mkdirSync(keystoreFolder);
+            fs.mkdir(keystoreFolder, function (err) {
+                if (err) {
+                    future.result = { returnValue: false, error: err};
+                } else {
+                    future.result = { returnValue: true };
+                }
+            });
+        } else {
+            future.result = { returnValue: true };
         }
-        future.result = { returnValue: true };
     });
 
     future.then(this, function dirCheckCB() {
         var result = future.result;
-        future.nest(KeyStore.loadKey()); //let's try anyway.
+        if (result.returnValue) {
+            future.nest(KeyStore.loadKey()); //let's try anyway.
+        } else {
+            future.result = result;
+        }
     });
 
     future.then(this, function haveCiphersCB() {
         var result = future.result;
-        future.nest(KeyStore.loadDatabase(keyStoreFile));
+        if (result.returnValue) {
+            future.nest(KeyStore.loadDatabase(keyStoreFile));
+        } else {
+            future.result = result;
+        }
     });
 
     return future;

@@ -73,7 +73,7 @@ var logBase = function () {
 var log = logBase;
 
 /* Simple debug function to print out to console error, error because other stuff does not show up in sys logs.. */
-var debug = dummy;
+var debug = logBase;
 
 process.on("uncaughtException", function (e) {
     log("Uncaught error: " + e.stack);

@@ -8,7 +8,9 @@ var sqlite3 = require("sqlite3").verbose();
 var KeyStore = (function () {
     "use strict";
     var database,
-        masterkey = "";
+        masterkey = "",
+        typesToString = { 1: "AES", 2: "DES", 3: "3DES", 4: "HMACSHA1", 5: "BLOB", 6: "ASCIIBLOB" },
+        stringToType = { AES: 1, DES: 2, "3DES": 3, HMACSHA1: 4, BLOB: 5, ASCIIBLOB: 6};
 
     function saveDB() {
         fs.writeFile(keyStoreFile, JSON.stringify(database), function writeCB(err) {
@@ -55,43 +57,37 @@ var KeyStore = (function () {
     }
 
     return {
-        copyKey: function (dest, from) {
-            var props = Object.getOwnPropertyNames(from);
-            debug("Own property names: ", props);
-            props.forEach(function (name) {
-                if (!dest[name]) {
-                    if (Buffer.isBuffer(from[name])) {
-                        dest[name] = new Buffer(from[name].length);
-                        from[name].copy(dest[name]);
-                    } else if (typeof from[name] === "object") {
-                        dest[name] = KeyStore.copyKey({}, from[name]);
-                    } else {
-                        dest[name] = from[name];
-                    }
+        //be careful: does not care for nohide! => can oppose (encrypted) key.
+        getKeyRawByName: function (appid, keyname) {
+            var future = new Future();
+            if (!appid || !keyname) {
+                future.result = {returnValue: false, errorText: "Need appid and keyname."};
+                return future;
+            }
+
+            database.get("SELECT * FROM keytable WHERE ownerID IS $ownerID AND keyID IS $keyID", {
+                $ownerID: appid,
+                $keyID: keyname
+            }, function getCB(err, row) {
+                if (err) {
+                    future.result = {returnValue: false, error: err};
+                } else if (!row) {
+                    future.result = {returnValue: false, errorTest: "Key not found."};
+                } else {
+                    //maybe check hash here to prevent changes in DB?
+
+                    future.result = {
+                        returnValue: true,
+                        key: {
+                            keyname: row.keyID,
+                            keydata: row.data,
+                            size: parseInt(row.keysize, 10),
+                            type: typesToString[row.type],
+                            nohide: row.scope > 0
+                        }
+                    };
                 }
             });
-            return dest;
-        },
-
-        getKeyRawByName: function (appid, keyname) {
-            var future = new Future(),
-                appStore,
-                key;
-
-            appStore = database[appid];
-            debug("Got appstore: ", appStore);
-
-            if (appStore && appStore[keyname]) {
-                key = KeyStore.copyKey({}, appStore[keyname]);
-                debug("Got key: ", key);
-                future.result = {
-                    key: key,
-                    returnValue: true
-                };
-            } else {
-                debug("No key found.");
-                future.result = { returnValue: false, errorText: "Key not found" };
-            }
 
             return future;
         },
@@ -105,7 +101,7 @@ var KeyStore = (function () {
                 if (result.returnValue === true) {
                     key = result.key;
                     if (key.nohide) {
-                        cData = new Buffer(key.keydata); //we store keydata as buffer array.
+                        cData = key.keydata; //we store keydata as buffer array.
                         debug("ciphered: ", cData.toString("utf-8"));
                         decrypt(cData).then(this, function decryptCB(f2) {
                             var r2 = f2.result;
@@ -127,7 +123,7 @@ var KeyStore = (function () {
                         future.result = result.key;
                     }
                 } else {
-                    future.result = {returnValue: false, errorText: result.errorText};
+                    future.result = result;
                 }
             });
 
@@ -142,39 +138,60 @@ var KeyStore = (function () {
                 return future;
             }
 
-            appstore = database[appid];
-            if (!appstore) {
-                appstore = {};
-                database[appid] = appstore;
-            }
-            debug("Got appstore:", appstore);
-
-            if (appstore[key.keyname]) {
-                future.result = { returnValue: false, errorText: "Key already exists."};
-                return future;
-            }
-
-            if (key.type === "ASCIIBLOB") {
-                cData = new Buffer(key.keydata, "utf-8");
-            } else {
-                cData = new Buffer(key.keydata, "base64");
-            }
-            future.nest(encrypt(cData));
-
-            future.then(this, function cryptCB() {
-                var result = future.result;
-                if (result.returnValue === true) {
-                    debug("Unciphered: ", cData.toString("utf-8"));
-                    debug("Ciphered: ", result.data.toString("utf-8"));
-                    key.keydata = result.data; //we store the raw buffer
-
-                    appstore[key.keyname] = key;
-                    saveDB();
-
-                    future.result = {returnValue: true};
+            //get from database
+            database.get("SELECT keyID FROM keytable WHERE ownerID IS $ownerID AND keyID IS $keyID", {
+                $ownerID: appid,
+                $keyID: key.keyname
+            }, function getCB(err, row) {
+                if (err) {
+                    future.result = {returnValue: false, error: err};
+                } else if (!row) {
+                    if (key.type === "ASCIIBLOB") {
+                        cData = new Buffer(key.keydata, "utf-8");
+                        if (!key.size) {
+                            key.size = key.keydata.length;
+console.log("Read length: ", key.size);
+                        }
+                    } else {
+                        cData = new Buffer(key.keydata, "base64");
+                        if (!key.size) {
+                            key.size = cData.toString("base64").length;
+                        }
+                    }
+                    future.nest(encrypt(cData));
                 } else {
-                    log("Could not encrypt.");
-                    future.result = {returnValue: false, errorTest: "Could not encrypt key."};
+                    future.result = {returnValue: false, errorText: "Key already exists."};
+                }
+            });
+
+            future.then(function checkKeyExistsCB() {
+                var result = future.result, hash;
+                if (result.returnValue) {
+                    hash = crypto.createHash("md5");
+                    hash.update(appid);
+                    hash.update(key.keyname);
+                    hash.update(result.data);
+                    hash.update(String(key.size || 0));
+                    hash.update(key.type);
+                    hash.update(key.nohide ? "1" : "0");
+
+                    database.run("INSERT INTO keytable (ownerID, keyID, data, keysize, type, scope, hash) VALUES ($ownerID, $keyID, $data, $keysize, $type, $scope, $hash)", {
+                        $ownerID: appid,
+                        $keyID: key.keyname,
+                        $data: result.data,
+                        $keysize: key.size,
+                        $type: stringToType[key.type],
+                        $scope: key.nohide ? 1 : 0,
+                        $hash: hash.digest("base64")
+                    }, function putCB(err) {
+                        if (err) {
+                            future.result = {returnValue: false, error: err};
+                        } else {
+                            future.result = {returnValue: true};
+                        }
+                    });
+                } else {
+                    future.result = result;
                 }
             });
 
@@ -182,19 +199,24 @@ var KeyStore = (function () {
         },
 
         deleteKey: function (appid, keyname) {
-            var appstore = database[appid];
-
-            if (appstore) {
-                if (appstore[keyname]) {
-                    delete appstore[keyname];
-                    saveDB();
-                    return { returnValue: true };
-                } else {
-                    return {returnValue: false, errorText: "Key not found."};
-                }
-            } else {
-                return {returnValue: false, errorText: "Key not found."};
+            var future = new Future();
+            if (!appid || !keyname) {
+                future.result = {returnValue: false, errorText: "Need appid and keyname."};
+                return future;
             }
+
+            database.run("DELETE FROM keytable WHERE ownerID IS $ownerID AND keyID IS $keyID", {
+                $ownerID: appid,
+                $keyID: keyname
+            }, function deleteCB(err) {
+                if (err) {
+                    future.result = {returnValue: false, error: err};
+                } else {
+                    future.result = {returnValue: true};
+                }
+            });
+
+            return future;
         },
 
         loadDatabase: function () {
@@ -233,7 +255,10 @@ var KeyStore = (function () {
             future.then(function checkTableCB() {
                 var result = future.result;
                 if (result.returnValue && result.createTable) {
-                    database.run("CREATE TABLE keytableconfig(id INTEGER PRIMARY KEY,data BLOB,dataLength INTEGER,iv BLOB,ivLength INTEGER);");
+                    // legacy has additional db of type:
+                    // database.run("CREATE TABLE keytableconfig(id INTEGER PRIMARY KEY,data BLOB,dataLength INTEGER,iv BLOB,ivLength INTEGER);");
+                    // I don't have any clue what that could be useful for... really... I had a look, on my device it only has
+                    // one entry and I can't see what it is referenced by. It MAY be the master key. But I'm not sure.
 
                     database.run("CREATE TABLE keytable(id INTEGER PRIMARY KEY,ownerID TEXT,keyID TEXT,data BLOB,keysize INTEGER,type INTEGER,scope INTEGER, hash BLOB);", function (err) {
                         future.result = {returnValue: !err, error: err};
@@ -279,4 +304,6 @@ var KeyStore = (function () {
     };
 }());
 
-module.exports = KeyStore;
+if (typeof module !== "undefined") { //allow to "require" this file.
+    module.exports = KeyStore;
+}

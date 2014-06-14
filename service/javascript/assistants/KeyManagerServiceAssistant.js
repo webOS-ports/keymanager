@@ -7,7 +7,7 @@
 
 var keystoreFolder = "/var/palm/keystore/";
 var keyFile = keystoreFolder + "key";
-var keyStoreFile = keystoreFolder + "store.sqlite";
+var keyStoreFile = keystoreFolder + "store.db";
 
 var KeyManagerServiceAssistant = function () {
     "use strict";

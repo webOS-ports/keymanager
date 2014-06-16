@@ -1,5 +1,5 @@
 diff --git a/lib/sqlite3.js b/lib/sqlite3.js
-index 901c5c9..79ef6cc 100644
+index 901c5c9..b95acaf 100644
 --- a/lib/sqlite3.js
 +++ b/lib/sqlite3.js
 @@ -1,7 +1,5 @@

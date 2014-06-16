@@ -1,0 +1,13 @@
+diff --git a/lib/sqlite3.js b/lib/sqlite3.js
+index 901c5c9..79ef6cc 100644
+--- a/lib/sqlite3.js
++++ b/lib/sqlite3.js
+@@ -1,7 +1,5 @@
+ var path = require('path');
+-var binary = require('node-pre-gyp');
+-var path = require('path')
+-var binding_path = binary.find(path.resolve(path.join(__dirname,'../package.json')));
++var binding_path = '/usr/lib/nodejs/node_sqlite3.node';
+ var binding = require(binding_path);
+ var sqlite3 = module.exports = exports = binding;
+ var util = require('util');

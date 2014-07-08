@@ -11,7 +11,7 @@ KeyInfoAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        throw {errorCode: -1, errorText: "Could not determine appId."};
+        throw {errorCode: -1, message: "Could not determine appId."};
     }
 
     future = KeyStore.getKeyRawByName(appId, args.keyname);
@@ -23,7 +23,7 @@ KeyInfoAssistant.prototype.run = function (outerfuture) {
             result.key.returnValue = true;
             outerfuture.result = result.key;
         } else {
-            outerfuture.result = result;
+            outerfuture.exception = result;
         }
     });
 };

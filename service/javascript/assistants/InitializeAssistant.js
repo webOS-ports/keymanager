@@ -12,6 +12,6 @@ InitializeAssistant.prototype.run = function (outerfuture) {
 
     log("WARNING: initialize was called with arguments " + JSON.stringify(args));
 
-    outerfuture.exception = {errorCode: -1, errorText: "Not yet implemented." };
+    outerfuture.exception = {errorCode: -1, message: "Not yet implemented." };
     return outerfuture;
 };

@@ -11,11 +11,17 @@ FetchKeyAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        outerfuture.result = {returnValue: false, errorText: "Could not determine appId."};
-        return outerfuture;
+        throw { erroCode: -1, message: "Could not determine appId."};
     }
 
-    outerfuture.nest(KeyStore.getKeyDecryptedByName(appId, args.keyname));
+    KeyStore.getKeyDecryptedByName(appId, args.keyname).then(function getCB(f) {
+        var result = f.result;
+        if (result.returnValue === true) {
+            outerfuture.result = result;
+        } else {
+            outerfuture.exception = result;
+        }
+    });
 
     return outerfuture;
 };

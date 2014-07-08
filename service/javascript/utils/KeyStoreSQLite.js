@@ -51,7 +51,7 @@ var KeyStore = (function () {
         getKeyRawByName: function (appid, keyname) {
             var future = new Future();
             if (!appid || !keyname) {
-                future.exception = {errorCode: -1, errorText: "Need appid and keyname."};
+                future.result = { returnValue: false, errorCode: -1, message: "Need appid and keyname."};
                 return future;
             }
 
@@ -60,9 +60,9 @@ var KeyStore = (function () {
                 $keyID: keyname
             }, function getCB(err, row) {
                 if (err) {
-                    future.exception = {errorCode: -1, errorText: JSON.stringify(err)};
+                    future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err)};
                 } else if (!row) {
-                    future.exception = {errorCode: -1, errorText: "Key not found."};
+                    future.result = { returnValue: false, errorCode: -1, message: "Key not found."};
                 } else {
                     //maybe check hash here to prevent changes in DB?
 
@@ -124,7 +124,7 @@ var KeyStore = (function () {
             var future = new Future(), cData;
 
             if (!appid || !key || !key.keyname) {
-                future.exception = {errorCode: -1, errorText: "Need appid, key and keyname."};
+                future.result = { returnValue: false, errorCode: -1, message: "Need appid, key and keyname."};
                 return future;
             }
 
@@ -134,7 +134,7 @@ var KeyStore = (function () {
                 $keyID: key.keyname
             }, function getCB(err, row) {
                 if (err) {
-                    future.exception = {errorCode: -1, error: err};
+                    future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                 } else if (!row) {
                     if (key.type === "ASCIIBLOB") {
                         cData = new Buffer(key.keydata, "utf-8");
@@ -149,7 +149,7 @@ var KeyStore = (function () {
                     }
                     future.nest(encrypt(cData));
                 } else {
-                    future.exception = {errorCode: -1, errorText: "Key already exists."};
+                    future.result = { returnValue: false, errorCode: -1, message: "Key already exists."};
                 }
             });
 
@@ -174,7 +174,7 @@ var KeyStore = (function () {
                         $hash: hash.digest("base64")
                     }, function putCB(err) {
                         if (err) {
-                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
+                            future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                         } else {
                             future.result = {returnValue: true};
                         }
@@ -190,7 +190,7 @@ var KeyStore = (function () {
         deleteKey: function (appid, keyname) {
             var future = new Future();
             if (!appid || !keyname) {
-                future.exception = {errorCode: -1, errorText: "Need appid and keyname."};
+                future.result = { returnValue: false, errorCode: -1, message: "Need appid and keyname."};
                 return future;
             }
 
@@ -199,7 +199,7 @@ var KeyStore = (function () {
                 $keyID: keyname
             }, function deleteCB(err) {
                 if (err) {
-                    future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
+                    future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                 } else {
                     future.result = {returnValue: true};
                 }
@@ -228,7 +228,7 @@ var KeyStore = (function () {
                     //check if table already exists:
                     database.all("SELECT name FROM sqlite_master WHERE type='table'", function checkTableCB(err, rows) {
                         if (err) {
-                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
+                            future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                         } else {
                             //decide how to go on, if table is there, finish, if not, create tables.
                             future.result = { returnValue: true, createTable: rows.length === 0 };
@@ -250,7 +250,7 @@ var KeyStore = (function () {
 
                     database.run("CREATE TABLE keytable(id INTEGER PRIMARY KEY,ownerID TEXT,keyID TEXT,data BLOB,keysize INTEGER,type INTEGER,scope INTEGER, hash BLOB);", function (err) {
                         if (err) {
-                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
+                            future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                         } else {
                             future.result = {returnValue: true};
                         }
@@ -272,7 +272,7 @@ var KeyStore = (function () {
                     crypto.randomBytes(256, function radomCB(ex, buf) {
                         if (ex) {
                             log("Could not create random key:", ex);
-                            future.exception = {errorCode: -1, errorText: JSON.stringify(ex) };
+                            future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(ex) };
                         } else {
                             masterkey = buf;
                             future.result = {returnValue: true};

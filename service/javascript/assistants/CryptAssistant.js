@@ -11,11 +11,11 @@ CryptAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        throw {errorCode: -1, errorText: "Could not determine appId."};
+        throw {errorCode: -1, message: "Could not determine appId."};
     }
 
     if (!args.keyname) {
-        throw {errorCode: -1, errorText: "Need keyname parameter"};
+        throw {errorCode: -1, message: "Need keyname parameter"};
     }
 
     if (args.mode !== "CBC" && args.mode !== "CFB" && args.mode !== "ECB" &&
@@ -30,7 +30,7 @@ CryptAssistant.prototype.run = function (outerfuture) {
         var result = future.result, algorithm, cipher, buffer, keydata, iv, resData = new Buffer("");
         if (result.returnValue === true) {
             if (args.algorithm !== result.type) {
-                throw {errorCode: -1, errorText: "Stored key algorithm and parameter differ."};
+                outerfuture.exception = {errorCode: -1, message: "Stored key algorithm and parameter differ."};
             }
 
             keydata = new Buffer(result.keydata, "base64");
@@ -82,10 +82,10 @@ CryptAssistant.prototype.run = function (outerfuture) {
                 cipher.write(buffer);
                 cipher.end();
             } catch (e) {
-                throw {errorCode: -1, errorText: e.message};
+                outerfuture.exception = {errorCode: -1, message: e.message};
             }
         } else {
-            throw {errorCode: -1, errorText: result.message || result.errorText};
+            outerfuture.exception = {errorCode: -1, message: result.message};
         }
     });
 

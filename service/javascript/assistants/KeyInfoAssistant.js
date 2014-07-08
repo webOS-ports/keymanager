@@ -11,8 +11,7 @@ KeyInfoAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        outerfuture.result = {returnValue: false, errorText: "Could not determine appId."};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Could not determine appId."};
     }
 
     future = KeyStore.getKeyRawByName(appId, args.keyname);

@@ -9,6 +9,6 @@ ExportAssistant.prototype.run = function (outerfuture) {
     "use strict";
     var args = this.controller.args;
 
-    outerfuture.result = {returnValue: false, errorText: "Not yet implemented." };
+    throw {errorCode: -1, errorText: "Not yet implemented." };
     return outerfuture;
 };

@@ -31,17 +31,17 @@ var KeyStore = (function () {
         }
 
         cipher.on("data", function dataCB(chunk) {
-            debug("Got chunk: ", chunk, " with length ", chunk.length);
+            //debug("Got chunk: ", chunk, " with length ", chunk.length);
             data = Buffer.concat([data, chunk]);
         });
 
         cipher.on("end", function endCB() {
             //done reading.
-            debug("End reading, have ", data.length, " bytes of data.");
+            //debug("End reading, have ", data.length, " bytes of data.");
             future.result = { returnValue: true, data: data };
         });
 
-        debug("Writing ", inData.length, " bytes of data.");
+        //debug("Writing ", inData.length, " bytes of data.");
         cipher.write(inData);
         cipher.end(); //should trigger end cb.
 
@@ -61,7 +61,7 @@ var KeyStore = (function () {
         getKeyRawByName: function (appid, keyname) {
             var future = new Future();
             if (!appid || !keyname) {
-                future.result = {returnValue: false, errorText: "Need appid and keyname."};
+                future.exception = {errorCode: -1, errorText: "Need appid and keyname."};
                 return future;
             }
 
@@ -70,9 +70,9 @@ var KeyStore = (function () {
                 $keyID: keyname
             }, function getCB(err, row) {
                 if (err) {
-                    future.result = {returnValue: false, error: err};
+                    future.exception = {errorCode: -1, errorText: JSON.stringify(err)};
                 } else if (!row) {
-                    future.result = {returnValue: false, errorTest: "Key not found."};
+                    future.exception = {errorCode: -1, errorText: "Key not found."};
                 } else {
                     //maybe check hash here to prevent changes in DB?
 
@@ -97,12 +97,12 @@ var KeyStore = (function () {
 
             future.then(this, function rawCB() {
                 var result = future.result, cData, key;
-                debug("Got raw result:", result);
+                //debug("Got raw result:", result);
                 if (result.returnValue === true) {
                     key = result.key;
                     if (key.nohide) {
                         cData = key.keydata; //we store keydata as buffer array.
-                        debug("ciphered: ", cData.toString("utf-8"));
+                        //debug("ciphered: ", cData.toString("utf-8"));
                         decrypt(cData).then(this, function decryptCB(f2) {
                             var r2 = f2.result;
                             if (r2.returnValue === true) {
@@ -111,7 +111,7 @@ var KeyStore = (function () {
                                 } else {
                                     key.keydata = r2.data.toString("base64");
                                 }
-                                debug("deciphered: ", key.keydata);
+                                //debug("deciphered: ", key.keydata);
                                 key.returnValue = true;
                                 future.result = key;
                             }
@@ -131,10 +131,10 @@ var KeyStore = (function () {
         },
 
         putKey: function (appid, key) {
-            var future = new Future(), appstore, cData, dData;
+            var future = new Future(), cData;
 
             if (!appid || !key || !key.keyname) {
-                future.result = { returnValue: false, errorText: "Need appid, key and keyname."};
+                future.exception = {errorCode: -1, errorText: "Need appid, key and keyname."};
                 return future;
             }
 
@@ -144,13 +144,12 @@ var KeyStore = (function () {
                 $keyID: key.keyname
             }, function getCB(err, row) {
                 if (err) {
-                    future.result = {returnValue: false, error: err};
+                    future.exception = {errorCode: -1, error: err};
                 } else if (!row) {
                     if (key.type === "ASCIIBLOB") {
                         cData = new Buffer(key.keydata, "utf-8");
                         if (!key.size) {
                             key.size = key.keydata.length;
-console.log("Read length: ", key.size);
                         }
                     } else {
                         cData = new Buffer(key.keydata, "base64");
@@ -160,7 +159,7 @@ console.log("Read length: ", key.size);
                     }
                     future.nest(encrypt(cData));
                 } else {
-                    future.result = {returnValue: false, errorText: "Key already exists."};
+                    future.exception = {errorCode: -1, errorText: "Key already exists."};
                 }
             });
 
@@ -185,7 +184,7 @@ console.log("Read length: ", key.size);
                         $hash: hash.digest("base64")
                     }, function putCB(err) {
                         if (err) {
-                            future.result = {returnValue: false, error: err};
+                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
                         } else {
                             future.result = {returnValue: true};
                         }
@@ -201,7 +200,7 @@ console.log("Read length: ", key.size);
         deleteKey: function (appid, keyname) {
             var future = new Future();
             if (!appid || !keyname) {
-                future.result = {returnValue: false, errorText: "Need appid and keyname."};
+                future.exception = {errorCode: -1, errorText: "Need appid and keyname."};
                 return future;
             }
 
@@ -210,7 +209,7 @@ console.log("Read length: ", key.size);
                 $keyID: keyname
             }, function deleteCB(err) {
                 if (err) {
-                    future.result = {returnValue: false, error: err};
+                    future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
                 } else {
                     future.result = {returnValue: true};
                 }
@@ -239,9 +238,8 @@ console.log("Read length: ", key.size);
                     //check if table already exists:
                     database.all("SELECT name FROM sqlite_master WHERE type='table'", function checkTableCB(err, rows) {
                         if (err) {
-                            future.result = { returnValue: false, error: err };
+                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
                         } else {
-                            debug("Got rows from check if table is there: ", rows);
                             //decide how to go on, if table is there, finish, if not, create tables.
                             future.result = { returnValue: true, createTable: rows.length === 0 };
                         }
@@ -261,7 +259,11 @@ console.log("Read length: ", key.size);
                     // one entry and I can't see what it is referenced by. It MAY be the master key. But I'm not sure.
 
                     database.run("CREATE TABLE keytable(id INTEGER PRIMARY KEY,ownerID TEXT,keyID TEXT,data BLOB,keysize INTEGER,type INTEGER,scope INTEGER, hash BLOB);", function (err) {
-                        future.result = {returnValue: !err, error: err};
+                        if (err) {
+                            future.exception = {errorCode: -1, errorText: JSON.stringify(err) };
+                        } else {
+                            future.result = {returnValue: true};
+                        }
                     });
                 } else {
                     future.result = result;
@@ -280,7 +282,7 @@ console.log("Read length: ", key.size);
                     crypto.randomBytes(256, function radomCB(ex, buf) {
                         if (ex) {
                             log("Could not create random key:", ex);
-                            future.result = { returnValue: false };
+                            future.exception = {errorCode: -1, errorText: JSON.stringify(ex) };
                         } else {
                             masterkey = buf;
                             future.result = {returnValue: true};

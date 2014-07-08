@@ -10,15 +10,13 @@ StoreAssistant.prototype.run = function (outerfuture) {
     var args = this.controller.args, key = {}, appId;
 
     if (!args.keyname) {
-        outerfuture.result = {returnValue: false, errorText: "Need keyname parameter"};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Need keyname parameter"};
     } else {
         key.keyname = args.keyname;
     }
 
     if (!args.keydata) {
-        outerfuture.result = {returnValue: false, errorText: "Need keydata parameter"};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Need keydata parameter"};
     } else {
         key.keydata = args.keydata;
     }
@@ -29,8 +27,7 @@ StoreAssistant.prototype.run = function (outerfuture) {
                        args.type !== "HMACSHA1" &&
                        args.type !== "BLOB" &&
                        args.type !== "ASCIIBLOB")) {
-        outerfuture.result = {returnValue: false, errorText: "Need valid type parameter"};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Need valid type parameter"};
     } else {
         key.type = args.type;
     }
@@ -43,8 +40,7 @@ StoreAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        outerfuture.result = {returnValue: false, errorText: "Could not determine appId."};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Could not determine appId."};
     }
 
     KeyStore.putKey(appId, key).then(this, function putCB(future) {

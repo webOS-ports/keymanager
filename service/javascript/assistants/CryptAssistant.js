@@ -11,19 +11,16 @@ CryptAssistant.prototype.run = function (outerfuture) {
 
     appId = getAppId(this.controller);
     if (!appId) {
-        outerfuture.result = { returnValue: false, errorText: "Could not determine appId."};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Could not determine appId."};
     }
 
     if (!args.keyname) {
-        outerfuture.result = {returnValue: false, errorText: "Need keyname parameter"};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Need keyname parameter"};
     }
 
     if (args.mode !== "CBC" && args.mode !== "CFB" && args.mode !== "ECB" &&
                     args.mode !== "none") {
-        //outerfuture.result = {returnValue: false, errorText: "Need valid mode parameter"};
-        //return outerfuture;
+        //just set CBC mode here, legacy does the same.
         args.mode = "CBC";
     }
 
@@ -33,8 +30,7 @@ CryptAssistant.prototype.run = function (outerfuture) {
         var result = future.result, algorithm, cipher, buffer, keydata, iv, resData = new Buffer("");
         if (result.returnValue === true) {
             if (args.algorithm !== result.type) {
-                outerfuture.result = {returnValue: false, errorText: "Stored key algorithm and parameter differ."};
-                return outerfuture;
+                throw {errorCode: -1, errorText: "Stored key algorithm and parameter differ."};
             }
 
             keydata = new Buffer(result.keydata, "base64");
@@ -86,10 +82,10 @@ CryptAssistant.prototype.run = function (outerfuture) {
                 cipher.write(buffer);
                 cipher.end();
             } catch (e) {
-                outerfuture.result = {returnValue: false, errorText: e.message};
+                throw {errorCode: -1, errorText: e.message};
             }
         } else {
-            outerfuture.result = result;
+            throw {errorCode: -1, errorText: result.message || result.errorText};
         }
     });
 

@@ -21,7 +21,7 @@ KeyManagerServiceAssistant.prototype.setup = function () {
         if (!exists) {
             fs.mkdir(keystoreFolder, function (err) {
                 if (err) {
-                    future.result = { returnValue: false, error: err};
+                    future.exception = {errorCode: -1, error: err};
                 } else {
                     future.result = { returnValue: true };
                 }

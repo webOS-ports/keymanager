@@ -10,14 +10,12 @@ RemoveAssistant.prototype.run = function (outerfuture) {
     var args = this.controller.args, appId;
 
     if (!args.keyname) {
-        outerfuture.result = {returnValue: false, errorText: "Need keyname parameter."};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Need keyname parameter."};
     }
 
     appId = getAppId(this.controller);
     if (!appId) {
-        outerfuture.result = {returnValue: false, errorText: "Could not determine appId."};
-        return outerfuture;
+        throw {errorCode: -1, errorText: "Could not determine appId."};
     }
 
     outerfuture.result = KeyStore.deleteKey(appId, args.keyname);

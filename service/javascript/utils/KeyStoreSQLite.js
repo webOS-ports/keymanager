@@ -12,16 +12,6 @@ var KeyStore = (function () {
         typesToString = { 1: "AES", 2: "DES", 3: "3DES", 4: "HMACSHA1", 5: "BLOB", 6: "ASCIIBLOB" },
         stringToType = { AES: 1, DES: 2, "3DES": 3, HMACSHA1: 4, BLOB: 5, ASCIIBLOB: 6};
 
-    function saveDB() {
-        fs.writeFile(keyStoreFile, JSON.stringify(database), function writeCB(err) {
-            if (err) {
-                log("Could not write keydb file:", err);
-            } else {
-                log("Keydb saved.");
-            }
-        });
-    }
-
     function _crypt(decrypt, inData) {
         var future = new Future(), cipher, data = new Buffer("");
         if (decrypt) {

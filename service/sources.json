@@ -12,7 +12,7 @@
         "source": "javascript/utils/Common.js"
     },
     {
-        "source": "javascript/utils/KeyStoreSQLite.js"
+        "source": "javascript/utils/KeyStore.js"
     },
     {
         "source": "javascript/assistants/KeyManagerServiceAssistant.js"

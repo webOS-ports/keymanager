@@ -17,7 +17,7 @@ KeyManagerServiceAssistant.prototype.setup = function () {
     "use strict";
     var future = new Future(), masterkey;
 
-    fs.exists(keystoreFolder, function existsCB(exists) {
+    fs.access(keystoreFolder, function existsCB(exists) {
         if (!exists) {
             fs.mkdir(keystoreFolder, function (err) {
                 if (err) {

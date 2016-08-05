@@ -201,7 +201,7 @@ var KeyStore = (function () {
 
         loadDatabase: function () {
             var future = new Future();
-            fs.exists(keyStoreFile, function existsCB(exists) {
+            fs.access(keyStoreFile, function existsCB(exists) {
                 if (exists) {
                     fs.readFile(keyStoreFile, function fileReadCB(err, data) {
                         if (err) {

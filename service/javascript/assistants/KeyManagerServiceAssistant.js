@@ -18,7 +18,7 @@ KeyManagerServiceAssistant.prototype.setup = function () {
     var future = new Future(), masterkey;
 
     fs.access(keystoreFolder, function existsCB(error) {
-        if (!error) {
+        if (error) {
             fs.mkdir(keystoreFolder, function (err) {
                 if (err) {
                     future.exception = {errorCode: -1, message: JSON.stringify(err)};

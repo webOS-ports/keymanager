@@ -17,7 +17,7 @@ var KeyStore = (function () {
     }
 
     function _crypt(decrypt, inData) {
-        var future = new Future(), cipher, data = new Buffer("");
+        var future = new Future(), cipher, data = new Buffer.from("");
         if (decrypt) {
             cipher = crypto.createDecipher("AES-256-CBC", masterkey);
         } else {
@@ -57,7 +57,7 @@ var KeyStore = (function () {
             props.forEach(function (name) {
                 if (!dest[name]) {
                     if (Buffer.isBuffer(from[name])) {
-                        dest[name] = new Buffer(from[name].length);
+                        dest[name] = new Buffer.from(from[name].length);
                         from[name].copy(dest[name]);
                     } else if (typeof from[name] === "object") {
                         dest[name] = KeyStore.copyKey({}, from[name]);
@@ -82,7 +82,7 @@ var KeyStore = (function () {
                 debug("Got key: ", key);
                 if (!Buffer.isBuffer(key.keydata)) {
                     debug("Have to create buffer from keydata.");
-                    key.keydata = new Buffer(key.keydata.data);
+                    key.keydata = new Buffer.from(key.keydata.data);
                 }
                 future.result = {
                     key: key,
@@ -105,7 +105,7 @@ var KeyStore = (function () {
                 if (result.returnValue === true) {
                     key = result.key;
                     if (key.nohide) {
-                        cData = new Buffer(key.keydata); //we store keydata as buffer array.
+                        cData = new Buffer.from(key.keydata); //we store keydata as buffer array.
                         debug("ciphered: ", cData.toString("utf-8"));
                         decrypt(cData).then(this, function decryptCB(f2) {
                             var r2 = f2.result;
@@ -155,9 +155,9 @@ var KeyStore = (function () {
             }
 
             if (key.type === "ASCIIBLOB") {
-                cData = new Buffer(key.keydata, "utf-8");
+                cData = new Buffer.from(key.keydata, "utf-8");
             } else {
-                cData = new Buffer(key.keydata, "base64");
+                cData = new Buffer.from(key.keydata, "base64");
             }
             future.nest(encrypt(cData));
 

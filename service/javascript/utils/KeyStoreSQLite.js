@@ -13,7 +13,7 @@ var KeyStore = (function () {
         stringToType = { AES: 1, DES: 2, "3DES": 3, HMACSHA1: 4, BLOB: 5, ASCIIBLOB: 6};
 
     function _crypt(decrypt, inData) {
-        var future = new Future(), cipher, data = new Buffer("");
+        var future = new Future(), cipher, data = new Buffer.from("");
         if (decrypt) {
             cipher = crypto.createDecipher("AES-256-CBC", masterkey);
         } else {
@@ -137,12 +137,12 @@ var KeyStore = (function () {
                     future.result = { returnValue: false, errorCode: -1, message: JSON.stringify(err) };
                 } else if (!row) {
                     if (key.type === "ASCIIBLOB") {
-                        cData = new Buffer(key.keydata, "utf-8");
+                        cData = new Buffer.from(key.keydata, "utf-8");
                         if (!key.size) {
                             key.size = key.keydata.length;
                         }
                     } else {
-                        cData = new Buffer(key.keydata, "base64");
+                        cData = new Buffer.from(key.keydata, "base64");
                         if (!key.size) {
                             key.size = cData.toString("base64").length;
                         }

@@ -37,7 +37,7 @@ future.then(function () {
         type: "AES",
         size: 32,
         nohide: true,
-        keydata: new Buffer("1222345678901234567890123456789032").toString("base64")
+        keydata: new Buffer.from("1222345678901234567890123456789032").toString("base64")
     }));
 });
 
@@ -59,7 +59,7 @@ future.then(function () {
         type: "AES",
         size: 32,
         nohide: true,
-        keydata: new Buffer("1222345678901234567890123456789032").toString("base64")
+        keydata: new Buffer.from("1222345678901234567890123456789032").toString("base64")
     }));
 });
 

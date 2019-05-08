@@ -27,13 +27,13 @@ CryptAssistant.prototype.run = function (outerfuture) {
     future = KeyStore.getKeyDecryptedByName(appId, args.keyname);
 
     future.then(this, function keyCB() {
-        var result = future.result, algorithm, cipher, buffer, keydata, iv, resData = new Buffer("");
+        var result = future.result, algorithm, cipher, buffer, keydata, iv, resData = new Buffer.from("");
         if (result.returnValue === true) {
             if (args.algorithm !== result.type) {
                 outerfuture.exception = {errorCode: -1, message: "Stored key algorithm and parameter differ."};
             }
 
-            keydata = new Buffer(result.keydata, "base64");
+            keydata = new Buffer.from(result.keydata, "base64");
             debug("Keydata: ", keydata, " with length", keydata.length);
             algorithm = result.type + "-" + keydata.length * 8;
             if (args.mode !== "none") {
@@ -41,7 +41,7 @@ CryptAssistant.prototype.run = function (outerfuture) {
             }
             try {
                 if (args.iv) {
-                    iv = new Buffer(args.iv, "base64");
+                    iv = new Buffer.from(args.iv, "base64");
                     if (args.decrypt) {
                         debug(algorithm, " for decryption with iv.");
                         cipher = crypto.createDecipheriv(algorithm, keydata, iv);
@@ -77,7 +77,7 @@ CryptAssistant.prototype.run = function (outerfuture) {
                     };
                 });
 
-                buffer = new Buffer(args.data, "base64");
+                buffer = new Buffer.from(args.data, "base64");
                 debug("Writing " + buffer.length + " bytes of data.");
                 cipher.write(buffer);
                 cipher.end();

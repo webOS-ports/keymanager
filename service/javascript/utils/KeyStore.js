@@ -57,7 +57,7 @@ var KeyStore = (function () {
             props.forEach(function (name) {
                 if (!dest[name]) {
                     if (Buffer.isBuffer(from[name])) {
-                        dest[name] = new Buffer.from(from[name].length);
+                        dest[name] = new Buffer.alloc(from[name].length);
                         from[name].copy(dest[name]);
                     } else if (typeof from[name] === "object") {
                         dest[name] = KeyStore.copyKey({}, from[name]);

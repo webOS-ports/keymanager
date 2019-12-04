@@ -1,0 +1,13 @@
+{
+    "services": [
+        "com.palm.keymanager/initialize",
+        "com.palm.keymanager/crypt",
+        "com.palm.keymanager/export",
+        "com.palm.keymanager/fetchKey",
+        "com.palm.keymanager/generate",
+        "com.palm.keymanager/import",
+        "com.palm.keymanager/keyInfo",
+        "com.palm.keymanager/remove",
+        "com.palm.keymanager/store"
+    ]
+}

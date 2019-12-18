@@ -1,7 +1,7 @@
 {
+    "appId": "com.palm.keymanager",
     "allowedNames": ["com.palm.keymanager"],
     "type": "regular",
-    "exeName": "js",
     "permissions": [
         {
             "inbound": ["*"],

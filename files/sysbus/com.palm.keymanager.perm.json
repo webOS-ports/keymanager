@@ -1,5 +1,6 @@
 {
     "com.palm.keymanager": [
-        "services"
+        "services",
+        "activities.manage"
     ]
 }

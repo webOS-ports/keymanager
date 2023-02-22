@@ -1,6 +1,7 @@
 {
     "appId": "com.palm.keymanager",
     "allowedNames": ["com.palm.keymanager"],
+    "trustLevel": "oem",
     "type": "regular",
     "permissions": [
         {

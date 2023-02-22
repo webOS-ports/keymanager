@@ -1,5 +1,5 @@
 {
-    "services": [
+    "keymanager-service.operation": [
         "com.palm.keymanager/initialize",
         "com.palm.keymanager/crypt",
         "com.palm.keymanager/export",

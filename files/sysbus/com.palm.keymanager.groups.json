@@ -1,0 +1,4 @@
+{
+ "allowedNames": ["com.palm.keymanager"],
+ "keymanager-service.operation": ["dev"]
+}

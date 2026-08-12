@@ -1,5 +1,5 @@
 /*jslint node: true, nomen: true */
-/*global Future, log, debug, fs, keyStoreFile, keyFile, crypto */
+/*global Future, log, debug, fs, keyStoreFile, keyFile, nodeCrypto */
 
 var KeyStore = (function () {
     "use strict";
@@ -19,9 +19,9 @@ var KeyStore = (function () {
     function _crypt(decrypt, inData) {
         var future = new Future(), cipher, data = new Buffer.from("");
         if (decrypt) {
-            cipher = crypto.createDecipher("AES-256-CBC", masterkey);
+            cipher = nodeCrypto.createDecipher("AES-256-CBC", masterkey);
         } else {
-            cipher = crypto.createCipher("AES-256-CBC", masterkey);
+            cipher = nodeCrypto.createCipher("AES-256-CBC", masterkey);
         }
 
         cipher.on("data", function dataCB(chunk) {
@@ -234,7 +234,7 @@ var KeyStore = (function () {
                 if (err) {
                     //generate random key:
                     debug("No file. Generating random key. Error was:", err);
-                    crypto.randomBytes(256, function radomCB(ex, buf) {
+                    nodeCrypto.randomBytes(256, function radomCB(ex, buf) {
                         if (ex) {
                             log("Could not create random key:", ex);
                             future.result = { returnValue: false };

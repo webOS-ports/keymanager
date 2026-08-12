@@ -3,7 +3,7 @@
 * It sets up the keystore decipher.
 */
 /*jslint node: true */
-/*global log, debug, fs, crypto, Future, KeyStore */
+/*global log, debug, fs, nodeCrypto, Future, KeyStore */
 
 var keystoreFolder = "/var/palm/keystore/";
 var keyFile = keystoreFolder + "key";

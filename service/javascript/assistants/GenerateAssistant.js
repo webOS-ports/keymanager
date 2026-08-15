@@ -1,5 +1,5 @@
 /*jslint node: true */
-/*global getAppId, KeyStore, crypto, log */
+/*global getAppId, KeyStore, nodeCrypto, log */
 
 var GenerateAssistant = function () {
     "use strict";
@@ -48,7 +48,7 @@ GenerateAssistant.prototype.run = function (outerfuture) {
         if (result.returnValue === true) {
             outerfuture.exception = {errorCode: -1, message: "Key already exists."};
         } else {
-            crypto.randomBytes(key.size, function radomCB(ex, buf) {
+            nodeCrypto.randomBytes(key.size, function radomCB(ex, buf) {
                 if (ex) {
                     log("Could not create random key:", ex);
                     outerfuture.exception = {errorCode: -1, message: "Could not create random key: " + JSON.stringify(ex) };

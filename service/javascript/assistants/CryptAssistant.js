@@ -1,5 +1,5 @@
 /*jslint node: true */
-/*global getAppId, KeyStore, crypto, debug */
+/*global getAppId, KeyStore, nodeCrypto, debug */
 
 var CryptAssistant = function () {
     "use strict";
@@ -44,18 +44,18 @@ CryptAssistant.prototype.run = function (outerfuture) {
                     iv = new Buffer.from(args.iv, "base64");
                     if (args.decrypt) {
                         debug(algorithm, " for decryption with iv.");
-                        cipher = crypto.createDecipheriv(algorithm, keydata, iv);
+                        cipher = nodeCrypto.createDecipheriv(algorithm, keydata, iv);
                     } else {
                         debug(algorithm, " for encryption with iv.");
-                        cipher = crypto.createCipheriv(algorithm, keydata, iv);
+                        cipher = nodeCrypto.createCipheriv(algorithm, keydata, iv);
                     }
                 } else {
                     if (args.decrypt) {
                         debug(algorithm, " for decryption.");
-                        cipher = crypto.createDecipher(algorithm, keydata);
+                        cipher = nodeCrypto.createDecipher(algorithm, keydata);
                     } else {
                         debug(algorithm, " for encryption.");
-                        cipher = crypto.createCipher(algorithm, keydata);
+                        cipher = nodeCrypto.createCipher(algorithm, keydata);
                     }
                 }
 

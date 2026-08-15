@@ -14,7 +14,29 @@ if (typeof require === "undefined") {
     require = IMPORTS.require;
 }
 var fs = require("fs"); //required for own node modules and current vCard converter.
-var crypto = require("crypto");
+
+// Deliberately NOT called "crypto". Node 19 and later define globalThis.crypto as a
+// getter-only accessor holding the WebCrypto Crypto object, whose interface is
+// getRandomValues/randomUUID/subtle and which has no randomBytes(), createCipher() or
+// createHash(). A top-level "var crypto = require('crypto')" in this sandbox assigns to
+// that accessor and, because the property has no setter and we run sloppy mode, the
+// assignment is silently discarded: every source file kept seeing WebCrypto.
+//
+// The visible effect was that KeyStore.loadKey() threw
+//     TypeError: crypto.randomBytes is not a function
+// which the uncaughtException handler at the bottom of this file swallowed, so
+// loadKey()'s future was never resolved, KeyManagerServiceAssistant.setup() never
+// completed, and MojoService never dispatched a single command. Every keymanager method
+// then blocked until its caller gave up, which took out account creation:
+// com.palm.service.accounts/createAccount hit its 20s commandTimeout inside
+// Utils.saveCredentials(), leaving accounts stored in db8 with no credentials.
+//
+// This only bit on a fresh system. Once /var/palm/keystore/key exists loadKey() reads it
+// and never reaches randomBytes(), which is why an already-provisioned device was fine.
+var nodeCrypto = IMPORTS.require("crypto");
+if (!nodeCrypto || typeof nodeCrypto.randomBytes !== "function") {
+    nodeCrypto = require("crypto");
+}
 
 console.error("--------->Loaded Libraries OK1");
 

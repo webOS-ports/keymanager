@@ -12,6 +12,9 @@
         "source": "javascript/utils/Common.js"
     },
     {
+        "source": "javascript/utils/Crypto.js"
+    },
+    {
         "source": "javascript/utils/KeyStore.js"
     },
     {

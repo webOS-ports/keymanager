@@ -1,5 +1,5 @@
 /*jslint node: true */
-/*global getAppId, KeyStore, nodeCrypto, debug */
+/*global getAppId, KeyStore, KeymanagerCrypto, nodeCrypto, debug */
 
 var CryptAssistant = function () {
     "use strict";
@@ -27,7 +27,8 @@ CryptAssistant.prototype.run = function (outerfuture) {
     future = KeyStore.getKeyDecryptedByName(appId, args.keyname);
 
     future.then(this, function keyCB() {
-        var result = future.result, algorithm, cipher, buffer, keydata, iv, resData = new Buffer.from("");
+        var result = future.result, algorithm, cipher, buffer, keydata, iv, info, derived,
+            resData = new Buffer.from("");
         if (result.returnValue === true) {
             if (args.algorithm !== result.type) {
                 outerfuture.exception = {errorCode: -1, message: "Stored key algorithm and parameter differ."};
@@ -50,12 +51,28 @@ CryptAssistant.prototype.run = function (outerfuture) {
                         cipher = nodeCrypto.createCipheriv(algorithm, keydata, iv);
                     }
                 } else {
+                    /* No iv given. This used to be createCipher/createDecipher,
+                     * which derived key and iv from `keydata` with
+                     * EVP_BytesToKey(MD5, 1 iteration, no salt) - and which node
+                     * 22 removed, so this branch threw for every caller.
+                     *
+                     * Reproduced rather than replaced: callers have data
+                     * encrypted under exactly this derivation, and a "better"
+                     * one here would silently fail to decrypt it. Callers who
+                     * want something sound should pass an iv, which takes the
+                     * branch above. See utils/Crypto.js.
+                     */
+                    info = nodeCrypto.getCipherInfo(algorithm);
+                    if (!info) {
+                        throw new Error("Unknown algorithm: " + algorithm);
+                    }
+                    derived = KeymanagerCrypto.legacyKeyAndIv(keydata, info.keyLength, info.ivLength || 0);
                     if (args.decrypt) {
-                        debug(algorithm, " for decryption.");
-                        cipher = nodeCrypto.createDecipher(algorithm, keydata);
+                        debug(algorithm, " for decryption, key and iv derived from the key.");
+                        cipher = nodeCrypto.createDecipheriv(algorithm, derived.key, derived.iv);
                     } else {
-                        debug(algorithm, " for encryption.");
-                        cipher = nodeCrypto.createCipher(algorithm, keydata);
+                        debug(algorithm, " for encryption, key and iv derived from the key.");
+                        cipher = nodeCrypto.createCipheriv(algorithm, derived.key, derived.iv);
                     }
                 }
 

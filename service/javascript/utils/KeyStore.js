@@ -1,43 +1,99 @@
 /*jslint node: true, nomen: true */
-/*global Future, log, debug, fs, keyStoreFile, keyFile, nodeCrypto */
+/*global Future, log, debug, fs, keyStoreFile, keyFile, nodeCrypto, KeymanagerCrypto */
 
 var KeyStore = (function () {
     "use strict";
     var database = {},
-        masterkey = "";
+        masterkey = "",
+        saving = false,
+        savePending = false;
 
+    /* Write the store atomically, and never two at once.
+     *
+     * This used to be a bare fs.writeFile onto keyStoreFile. Two of those
+     * overlapping - which is all it takes, since every putKey and deleteKey
+     * calls this and none of them wait - each truncate and then write at their
+     * own pace, so the shorter one can finish inside the longer one and leave
+     * its tail behind. The result is a store.db that no longer parses, and
+     * loadDatabase() answers that by starting a fresh empty database: every
+     * stored credential silently gone. Reproduced by the suite, which stores a
+     * handful of keys in quick succession and then reads the file back.
+     *
+     * So: serialise, write to a temp file, rename into place. rename is atomic
+     * within a filesystem, so a reader sees either the old store or the new one
+     * and never a half-written one.
+     *
+     * 0600 on create, and chmod too - writeFile only applies mode when it
+     * creates the file, so a store written before this change would keep its
+     * old bits.
+     */
     function saveDB() {
-        fs.writeFile(keyStoreFile, JSON.stringify(database), function writeCB(err) {
+        if (saving) {
+            savePending = true;     // coalesce: one more save after this one
+            return;
+        }
+        saving = true;
+
+        var tmpFile = keyStoreFile + ".tmp";
+        var snapshot = JSON.stringify(database);
+
+        function done() {
+            saving = false;
+            if (savePending) {
+                savePending = false;
+                saveDB();
+            }
+        }
+
+        fs.writeFile(tmpFile, snapshot, {mode: 384}, function writeCB(err) {
             if (err) {
                 log("Could not write keydb file:", err);
-            } else {
-                log("Keydb saved.");
+                return done();
             }
+            fs.chmod(tmpFile, 384, function chmodCB(chmodErr) {
+                if (chmodErr) {
+                    log("Could not tighten permissions on the keydb file:", chmodErr);
+                }
+                fs.rename(tmpFile, keyStoreFile, function renameCB(renameErr) {
+                    if (renameErr) {
+                        log("Could not put the keydb file in place:", renameErr);
+                    } else {
+                        log("Keydb saved.");
+                    }
+                    done();
+                });
+            });
         });
     }
 
+    /* Was a streamed createCipher/createDecipher. Two things changed:
+     *
+     * The cipher itself - see utils/Crypto.js. createCipher no longer exists on
+     * node 22, and what it did was not worth reproducing.
+     *
+     * And the shape: update()/final() rather than the "data"/"end" events. The
+     * old version only ever set future.result on "end", so any failure left the
+     * future unresolved and the caller hanging until its command timed out -
+     * the same silent-hang failure mode that took out account creation when
+     * randomBytes went missing. A future that always settles, one way or the
+     * other, is worth more here than streaming a few hundred bytes.
+     */
     function _crypt(decrypt, inData) {
-        var future = new Future(), cipher, data = new Buffer.from("");
-        if (decrypt) {
-            cipher = nodeCrypto.createDecipher("AES-256-CBC", masterkey);
-        } else {
-            cipher = nodeCrypto.createCipher("AES-256-CBC", masterkey);
-        }
+        var future = new Future(), data;
 
-        cipher.on("data", function dataCB(chunk) {
-            debug("Got chunk: ", chunk, " with length ", chunk.length);
-            data = Buffer.concat([data, chunk]);
-        });
-
-        cipher.on("end", function endCB() {
-            //done reading.
-            debug("End reading, have ", data.length, " bytes of data.");
+        try {
+            debug("Crypting ", inData.length, " bytes of data.");
+            if (decrypt) {
+                data = KeymanagerCrypto.decrypt(masterkey, inData);
+            } else {
+                data = KeymanagerCrypto.encrypt(masterkey, inData);
+            }
+            debug("Have ", data.length, " bytes of data.");
             future.result = { returnValue: true, data: data };
-        });
-
-        debug("Writing ", inData.length, " bytes of data.");
-        cipher.write(inData);
-        cipher.end(); //should trigger end cb.
+        } catch (e) {
+            log("Could not " + (decrypt ? "decrypt" : "encrypt") + " keystore record:", e.message);
+            future.result = { returnValue: false, message: e.message };
+        }
 
         return future;
     }
@@ -118,6 +174,15 @@ var KeyStore = (function () {
                                 debug("deciphered: ", key.keydata);
                                 key.returnValue = true;
                                 future.result = key;
+                            } else {
+                                // Previously left unset, which hung the caller.
+                                // A record that will not decrypt is now an
+                                // answer, not a stall - and with an AEAD it is
+                                // also how tampering surfaces.
+                                future.result = {
+                                    returnValue: false,
+                                    message: r2.message || "Could not decrypt key."
+                                };
                             }
                         });
                     } else {
@@ -241,7 +306,7 @@ var KeyStore = (function () {
                         } else {
                             masterkey = buf;
                             future.result = {returnValue: true};
-                            fs.writeFile(keyFile, masterkey, function writeCB(err) {
+                            fs.writeFile(keyFile, masterkey, {mode: 384}, function writeCB(err) {
                                 if (err) {
                                     log("Could not write key file:", err);
                                 } else {
@@ -253,6 +318,14 @@ var KeyStore = (function () {
                 } else {
                     debug("Read key with length " + data.length + " from file.");
                     masterkey = data;
+                    // Existing devices shipped this file as 0644, sitting next
+                    // to the data it protects. Tighten it in passing; there is
+                    // no point encrypting a store with a key anyone can read.
+                    fs.chmod(keyFile, 384, function chmodCB(chmodErr) {
+                        if (chmodErr) {
+                            log("Could not tighten permissions on the key file:", chmodErr);
+                        }
+                    });
                     future.result = {returnValue: true};
                 }
             });

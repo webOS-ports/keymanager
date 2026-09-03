@@ -465,6 +465,446 @@ async function main() {
     check("the explicit-iv path still works",
         encIv !== "__TIMEOUT__" && encIv && encIv.returnValue === true, JSON.stringify(encIv));
 
+    /* ------------------------------------------------ keystore export */
+    section("Export/import: a backup that can restore passwords");
+
+    var BACKUP_SOURCES = [
+        "javascript/utils/Common.js",
+        "javascript/utils/Crypto.js",
+        "javascript/utils/KeyStore.js",
+        "javascript/assistants/ExportKeystoreAssistant.js",
+        "javascript/assistants/ImportKeystoreAssistant.js"
+    ];
+
+    function runAssistant(context, Name, args) {
+        var outer = new harness.Future();
+        var assistant = new context[Name]();
+        assistant.controller = {
+            args: args,
+            message: {
+                applicationID: function () { return "com.palm.app.backup.service"; },
+                senderServiceName: function () { return "com.palm.app.backup.service"; }
+            }
+        };
+        // An assistant reports a bad request by throwing and a failed operation
+        // by setting outerfuture.exception. Both are outcomes a test wants to
+        // assert on, so neither should escape as an unhandled rejection.
+        try {
+            assistant.run(outer);
+        } catch (thrown) {
+            return Promise.resolve({ __threw: thrown, returnValue: false });
+        }
+        return settle(outer, 20000).catch(function (failed) {
+            return { __failed: failed, returnValue: false };
+        });
+    }
+
+    // "Device A": a store with a couple of credentials in it.
+    var devA = newContext({ sources: BACKUP_SOURCES });
+    await settle(devA.KeyStore.loadKey());
+    await settle(devA.KeyStore.loadDatabase());
+    await settle(devA.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "password", type: "ASCIIBLOB", nohide: true, keydata: "s3cr3t-mail-pw"
+    }));
+    await settle(devA.KeyStore.putKey("org.webosports.cdav", {
+        keyname: "password", type: "ASCIIBLOB", nohide: true, keydata: "another-password"
+    }));
+    // nohide:false - readers get no key material back, but an export must still
+    // carry it or the restored key would be an empty shell.
+    await settle(devA.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "hidden", type: "AES", size: 32, nohide: false,
+        keydata: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64")
+    }));
+    // noexport is the opposite case: it must NOT travel.
+    await settle(devA.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "device-bound", type: "ASCIIBLOB", nohide: true, noexport: true,
+        keydata: "must-never-leave-this-device"
+    }));
+
+    var PASSPHRASE = "correct horse battery staple";
+    var exported = await runAssistant(devA, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+    check("exportKeystore succeeds",
+        exported !== "__TIMEOUT__" && exported && exported.returnValue === true,
+        JSON.stringify(exported && (exported.__threw || exported.errorText || exported)));
+    check("...and reports every key it exported",
+        exported && exported.count === 3, exported && String(exported.count));
+    check("a noexport key is left out of the backup",
+        exported.returnValue === true && exported.excluded.length === 1 &&
+            exported.excluded[0].indexOf("device-bound") !== -1,
+        JSON.stringify(exported && exported.excluded));
+    check("...and its value is nowhere in the export",
+        JSON.stringify(exported.keystore).indexOf("must-never-leave-this-device") === -1 &&
+            Buffer.from(exported.keystore.ciphertext, "base64")
+                .indexOf("must-never-leave-this-device") === -1);
+
+    var envelope = exported && exported.keystore;
+    check("the export is scrypt + aes-256-gcm with its parameters recorded",
+        envelope && envelope.kdf === "scrypt" && envelope.cipher === "aes-256-gcm" &&
+            envelope.kdfParams && envelope.kdfParams.N > 0);
+    check("no password appears in clear anywhere in the export",
+        JSON.stringify(envelope).indexOf("s3cr3t-mail-pw") === -1 &&
+            Buffer.from(envelope.ciphertext, "base64").indexOf("s3cr3t-mail-pw") === -1);
+
+    var missingPass = await runAssistant(devA, "ExportKeystoreAssistant", {});
+    check("exporting without a passphrase is refused", missingPass && missingPass.__threw);
+
+    /* ---- the point of the exercise: another device, another master key ---- */
+    section("Export/import: onto a different device");
+
+    var devB = newContext({ sources: BACKUP_SOURCES });
+    await settle(devB.KeyStore.loadKey());
+    await settle(devB.KeyStore.loadDatabase());
+    await new Promise(function (r) { setTimeout(r, 300); });
+
+    var keyA = fs.readFileSync(path.join(devA.__root, "key"));
+    var keyB = fs.readFileSync(path.join(devB.__root, "key"));
+    check("the two devices really do have different master keys", !keyA.equals(keyB));
+
+    var importedB = await runAssistant(devB, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: envelope });
+    check("importKeystore succeeds on the other device",
+        importedB !== "__TIMEOUT__" && importedB && importedB.returnValue === true,
+        JSON.stringify(importedB && (importedB.__threw || importedB)));
+    check("...importing all three keys",
+        importedB && importedB.imported === 3 && importedB.failed.length === 0,
+        JSON.stringify(importedB));
+
+    var notRestored = await settle(devB.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "device-bound"));
+    check("a noexport key does not appear on the restored device",
+        notRestored !== "__TIMEOUT__" && notRestored.returnValue === false,
+        JSON.stringify(notRestored));
+
+    var restored = await settle(devB.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("a password restored onto the other device decrypts there",
+        restored !== "__TIMEOUT__" && restored.returnValue === true &&
+            restored.keydata === "s3cr3t-mail-pw",
+        JSON.stringify(restored && restored.keydata));
+
+    var restoredCdav = await settle(devB.KeyStore.getKeyDecryptedByName("org.webosports.cdav", "password"));
+    check("...and so does one belonging to a different appid",
+        restoredCdav !== "__TIMEOUT__" && restoredCdav.returnValue === true &&
+            restoredCdav.keydata === "another-password");
+
+    // Re-encrypted under device B's key, not carried over as device A's bytes.
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var bStore = JSON.parse(fs.readFileSync(path.join(devB.__root, "store.db"), "utf8"));
+    var bRecord = Buffer.from(bStore["com.palm.palmprofile"].password.keydata.data);
+    check("the restored record is re-encrypted under this device's key",
+        !C.isLegacy(bRecord) &&
+            throws(function () { devA.KeymanagerCrypto.decrypt(keyA, bRecord); }) !== null);
+
+    /* ---- failure modes ---- */
+    section("Export/import: wrong passphrase and tampering");
+
+    var devC = newContext({ sources: BACKUP_SOURCES });
+    await settle(devC.KeyStore.loadKey());
+    await settle(devC.KeyStore.loadDatabase());
+
+    var wrongPass = await runAssistant(devC, "ImportKeystoreAssistant",
+        { passphrase: "not the passphrase", keystore: envelope });
+    check("a wrong passphrase is rejected",
+        wrongPass !== "__TIMEOUT__" && wrongPass && wrongPass.returnValue !== true &&
+            wrongPass.__failed !== undefined,
+        JSON.stringify(wrongPass));
+
+    var mangled = JSON.parse(JSON.stringify(envelope));
+    var ctBytes = Buffer.from(mangled.ciphertext, "base64");
+    ctBytes[0] ^= 0xFF;
+    mangled.ciphertext = ctBytes.toString("base64");
+    var tamperedImport = await runAssistant(devC, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: mangled });
+    check("a tampered export is rejected",
+        tamperedImport !== "__TIMEOUT__" && tamperedImport &&
+            tamperedImport.returnValue !== true);
+
+    var emptyAfterFailures = await settle(devC.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("nothing was imported by either failed attempt",
+        emptyAfterFailures !== "__TIMEOUT__" && emptyAfterFailures.returnValue === false);
+
+    var wrongVersion = JSON.parse(JSON.stringify(envelope));
+    wrongVersion.version = 99;
+    var versionFail = await runAssistant(devC, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: wrongVersion });
+    check("an export from a future version is refused, not guessed at",
+        versionFail !== "__TIMEOUT__" && versionFail && versionFail.returnValue !== true);
+
+    /* ---- a damaged record must not cost the whole export ---- */
+    section("Export/import: a partially damaged store still exports");
+
+    var damagedCtx = newContext({ sources: BACKUP_SOURCES });
+    await settle(damagedCtx.KeyStore.loadKey());
+    await settle(damagedCtx.KeyStore.loadDatabase());
+    await settle(damagedCtx.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "good", type: "ASCIIBLOB", nohide: true, keydata: "still-here"
+    }));
+    await settle(damagedCtx.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "damaged", type: "ASCIIBLOB", nohide: true, keydata: "will-be-broken"
+    }));
+    await new Promise(function (r) { setTimeout(r, 300); });
+
+    var dmgPath = path.join(damagedCtx.__root, "store.db");
+    var dmgStore = JSON.parse(fs.readFileSync(dmgPath, "utf8"));
+    var dmgBytes = dmgStore["com.palm.palmprofile"].damaged.keydata.data;
+    dmgBytes[dmgBytes.length - 1] ^= 0xFF;
+    fs.writeFileSync(dmgPath, JSON.stringify(dmgStore));
+
+    var dmgCtx = newContext({ root: damagedCtx.__root, sources: BACKUP_SOURCES });
+    await settle(dmgCtx.KeyStore.loadKey());
+    await settle(dmgCtx.KeyStore.loadDatabase());
+    var dmgExport = await runAssistant(dmgCtx, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+
+    check("one unreadable record does not fail the export",
+        dmgExport !== "__TIMEOUT__" && dmgExport && dmgExport.returnValue === true,
+        JSON.stringify(dmgExport && (dmgExport.__threw || dmgExport.__failed || "")));
+    check("...the readable ones are still exported",
+        dmgExport.returnValue === true && dmgExport.count === 1, String(dmgExport.count));
+    check("...and the damaged one is named rather than silently dropped",
+        dmgExport.returnValue === true && dmgExport.unreadable.length === 1 &&
+            dmgExport.unreadable[0].indexOf("damaged") !== -1,
+        JSON.stringify(dmgExport.unreadable));
+
+    /* ---- the upgrade path: a store written before the cipher change ---- */
+    section("Export/import: a legacy-format store can still be backed up");
+
+    var oldCtx = newContext({ sources: BACKUP_SOURCES });
+    await settle(oldCtx.KeyStore.loadKey());
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var oldMaster = fs.readFileSync(path.join(oldCtx.__root, "key"));
+    var oldKv = oldCtx.KeymanagerCrypto.legacyKeyAndIv(oldMaster, 32, 16);
+    var oldCipher = crypto.createCipheriv("aes-256-cbc", oldKv.key, oldKv.iv);
+    var oldRecord = Buffer.concat([
+        oldCipher.update(Buffer.from("pre-gcm-password", "utf8")),
+        oldCipher.final()
+    ]);
+    fs.writeFileSync(path.join(oldCtx.__root, "store.db"), JSON.stringify({
+        "com.palm.palmprofile": {
+            password: {
+                keyname: "password", type: "ASCIIBLOB", nohide: true,
+                keydata: { type: "Buffer", data: Array.prototype.slice.call(oldRecord) }
+            }
+        }
+    }));
+
+    var upgradeCtx = newContext({ root: oldCtx.__root, sources: BACKUP_SOURCES });
+    await settle(upgradeCtx.KeyStore.loadKey());
+    await settle(upgradeCtx.KeyStore.loadDatabase());
+    var oldExport = await runAssistant(upgradeCtx, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+    check("a pre-GCM store exports",
+        oldExport !== "__TIMEOUT__" && oldExport && oldExport.returnValue === true &&
+            oldExport.count === 1, JSON.stringify(oldExport && oldExport.count));
+
+    var upgradeTarget = newContext({ sources: BACKUP_SOURCES });
+    await settle(upgradeTarget.KeyStore.loadKey());
+    await settle(upgradeTarget.KeyStore.loadDatabase());
+    await runAssistant(upgradeTarget, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: oldExport.keystore });
+    var upgraded = await settle(upgradeTarget.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("...and restores onto a fresh device with the right value",
+        upgraded !== "__TIMEOUT__" && upgraded.returnValue === true &&
+            upgraded.keydata === "pre-gcm-password",
+        JSON.stringify(upgraded && upgraded.keydata));
+
+    /* ---- restoring over existing credentials ---- */
+    section("Export/import: restoring onto a device that already has keys");
+
+    var devD = newContext({ sources: BACKUP_SOURCES });
+    await settle(devD.KeyStore.loadKey());
+    await settle(devD.KeyStore.loadDatabase());
+    await settle(devD.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "password", type: "ASCIIBLOB", nohide: true, keydata: "the-current-password"
+    }));
+
+    var noOverwrite = await runAssistant(devD, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: envelope });
+    check("an existing key is skipped by default",
+        noOverwrite && noOverwrite.returnValue === true && noOverwrite.skipped === 1 &&
+            noOverwrite.imported === 2,
+        JSON.stringify(noOverwrite));
+
+    var kept = await settle(devD.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("...and the working password is left alone",
+        kept.returnValue === true && kept.keydata === "the-current-password",
+        JSON.stringify(kept && kept.keydata));
+
+    var overwritten = await runAssistant(devD, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: envelope, overwrite: true });
+    check("overwrite:true replaces it", overwritten && overwritten.imported === 3,
+        JSON.stringify(overwritten));
+    var replaced = await settle(devD.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("...with the one from the backup",
+        replaced.returnValue === true && replaced.keydata === "s3cr3t-mail-pw",
+        JSON.stringify(replaced && replaced.keydata));
+
+    /* ---- empty store ---- */
+    var devE = newContext({ sources: BACKUP_SOURCES });
+    await settle(devE.KeyStore.loadKey());
+    await settle(devE.KeyStore.loadDatabase());
+    var emptyExport = await runAssistant(devE, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+    check("an empty keystore exports without complaint",
+        emptyExport && emptyExport.returnValue === true && emptyExport.count === 0,
+        JSON.stringify(emptyExport && emptyExport.count));
+
+    /* ------------------------------------------------ per-key export */
+    section("export/import: key wrapping, per the 3.0.5 contract");
+
+    // Contract recovered from a decompile of the webOS 3.0.5 keymanager binary
+    // (KeyServiceHandler::Export @ 0x00011c28, Import @ 0x00013c38):
+    //   export { keyname, wrappingkeyname } -> { wrappedkey }
+    //   import { wrappedkey }               -> { keyname }
+    // Both keys are looked up under the caller's own appId; the wrapped blob
+    // identifies its own wrapping key, which is why import needs no name.
+
+    var PERKEY_SOURCES = [
+        "javascript/utils/Common.js",
+        "javascript/utils/Crypto.js",
+        "javascript/utils/KeyStore.js",
+        "javascript/assistants/ExportAssistant.js",
+        "javascript/assistants/ImportAssistant.js"
+    ];
+
+    function runAs(context, Name, appId, args) {
+        var outer = new harness.Future();
+        var assistant = new context[Name]();
+        assistant.controller = {
+            args: args,
+            message: {
+                applicationID: function () { return appId; },
+                senderServiceName: function () { return appId; }
+            }
+        };
+        try {
+            assistant.run(outer);
+        } catch (thrown) {
+            return Promise.resolve({ __threw: thrown, returnValue: false });
+        }
+        return settle(outer, 20000).catch(function (failed) {
+            return { __failed: failed, returnValue: false };
+        });
+    }
+
+    var WRAP_MATERIAL = crypto.randomBytes(32).toString("base64");
+
+    var appA = newContext({ sources: PERKEY_SOURCES });
+    await settle(appA.KeyStore.loadKey());
+    await settle(appA.KeyStore.loadDatabase());
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "mykey", type: "ASCIIBLOB", nohide: true, keydata: "app-one-secret"
+    }));
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true, keydata: WRAP_MATERIAL
+    }));
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "locked", type: "ASCIIBLOB", nohide: true, noexport: true, keydata: "never-leaves"
+    }));
+    await settle(appA.KeyStore.putKey("com.example.two", {
+        keyname: "otherkey", type: "ASCIIBLOB", nohide: true, keydata: "app-two-secret"
+    }));
+
+    var wrapped = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "wrapper" });
+    check("export returns a wrappedkey",
+        wrapped.returnValue === true && wrapped.wrappedkey &&
+            typeof wrapped.wrappedkey.ciphertext === "string",
+        JSON.stringify(wrapped.__threw || wrapped.__failed || ""));
+    check("...naming its wrapping key by fingerprint, not by name",
+        wrapped.returnValue === true && typeof wrapped.wrappedkey.wrappingKey === "string" &&
+            JSON.stringify(wrapped.wrappedkey).indexOf("wrapper") === -1);
+    check("...with no plaintext in it",
+        wrapped.returnValue === true &&
+            Buffer.from(wrapped.wrappedkey.ciphertext, "base64").indexOf("app-one-secret") === -1);
+
+    var sameKeys = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "mykey" });
+    check("wrapping a key with itself is refused (\"same keys\")",
+        sameKeys.__threw && sameKeys.__threw.message === "same keys");
+
+    var noWrapName = await runAs(appA, "ExportAssistant", "com.example.one", { keyname: "mykey" });
+    check("export without wrappingkeyname is refused", noWrapName.__threw !== undefined);
+
+    var unknown = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "nosuchkey" });
+    check("an unknown wrapping key is refused (\"unknown key\")",
+        unknown.returnValue !== true);
+
+    var crossApp = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "otherkey", wrappingkeyname: "wrapper" });
+    check("an app cannot export another app's key", crossApp.returnValue !== true);
+
+    var lockedOut = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "locked", wrappingkeyname: "wrapper" });
+    check("a key stored with noexport is refused",
+        lockedOut.returnValue !== true, JSON.stringify(lockedOut));
+
+    /* ---- import onto a second device that shares the wrapping key ---- */
+    var appB = newContext({ sources: PERKEY_SOURCES });
+    await settle(appB.KeyStore.loadKey());
+    await settle(appB.KeyStore.loadDatabase());
+    await settle(appB.KeyStore.putKey("com.example.one", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true, keydata: WRAP_MATERIAL
+    }));
+
+    var pkImport = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("import succeeds where the wrapping key is present",
+        pkImport.returnValue === true && pkImport.keyname === "mykey",
+        JSON.stringify(pkImport.__threw || pkImport.__failed || pkImport));
+
+    var pkBack = await settle(appB.KeyStore.getKeyDecryptedByName("com.example.one", "mykey"));
+    check("...and the key decrypts under the other device's master key",
+        pkBack !== "__TIMEOUT__" && pkBack.returnValue === true &&
+            pkBack.keydata === "app-one-secret",
+        JSON.stringify(pkBack && pkBack.keydata));
+
+    /* ---- without the wrapping key there is nothing to be had ---- */
+    var appC = newContext({ sources: PERKEY_SOURCES });
+    await settle(appC.KeyStore.loadKey());
+    await settle(appC.KeyStore.loadDatabase());
+    var noWrapper = await runAs(appC, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("import without the wrapping key is refused (\"wrapping key missing\")",
+        noWrapper.returnValue !== true, JSON.stringify(noWrapper));
+
+    // The wrapping key is looked up under the caller's appId, so another app
+    // holding the wrapped blob cannot unwrap it either.
+    await settle(appC.KeyStore.putKey("com.example.evil", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true,
+        keydata: crypto.randomBytes(32).toString("base64")
+    }));
+    var wrongWrapper = await runAs(appC, "ImportAssistant", "com.example.evil",
+        { wrappedkey: wrapped.wrappedkey });
+    check("another app's wrapping key does not unwrap it", wrongWrapper.returnValue !== true);
+
+    var tamperedWrap = JSON.parse(JSON.stringify(wrapped.wrappedkey));
+    var wb = Buffer.from(tamperedWrap.ciphertext, "base64");
+    wb[0] ^= 0xFF;
+    tamperedWrap.ciphertext = wb.toString("base64");
+    var tamperedImport = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: tamperedWrap, keyname: "tampered" });
+    check("a tampered wrapped key is rejected", tamperedImport.returnValue !== true);
+
+    var pkDup = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("importing over an existing key is refused by default", pkDup.returnValue !== true);
+
+    var pkOver = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey, overwrite: true });
+    check("...and allowed with overwrite (an extension, not in 3.0.5)",
+        pkOver.returnValue === true, JSON.stringify(pkOver));
+
+    var pkRenamed = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey, keyname: "renamed" });
+    check("an explicit keyname imports it under that name",
+        pkRenamed.returnValue === true && pkRenamed.keyname === "renamed");
+    var renamedBack = await settle(appB.KeyStore.getKeyDecryptedByName("com.example.one", "renamed"));
+    check("...and it decrypts under the new name",
+        renamedBack !== "__TIMEOUT__" && renamedBack.returnValue === true &&
+            renamedBack.keydata === "app-one-secret");
+
+    var lockedExport = await settle(appA.KeyStore.exportKey("com.example.one", "locked"));
+    check("noexport survives a store/read round trip",
+        lockedExport.returnValue === true && lockedExport.key.noexport === true,
+        JSON.stringify(lockedExport && lockedExport.key));
+
     /* ------------------------------------------------ summary */
     console.log("\n" + passed + " passed, " + failed + " failed, " + skipped + " skipped");
     ROOTS.forEach(harness.rmrf);

@@ -26,6 +26,16 @@
 					"public": true
 				},
 				{
+					"name": "exportKeystore",
+					"assistant": "ExportKeystoreAssistant",
+					"public": false
+				},
+				{
+					"name": "importKeystore",
+					"assistant": "ImportKeystoreAssistant",
+					"public": false
+				},
+				{
 					"name": "fetchKey",
 					"assistant": "FetchKeyAssistant",
 					"public": true

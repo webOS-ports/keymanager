@@ -33,6 +33,9 @@ StoreAssistant.prototype.run = function (outerfuture) {
     }
 
     key.nohide = args.nohide;
+    // keyInfo has always reported a noexport flag; store it so it means
+    // something. ExportAssistant refuses to hand out a key marked with it.
+    key.noexport = args.noexport === true;
 
     if (args.backup || args.cloud) {
         log("WARNING: backup and cloud backup not supported!");

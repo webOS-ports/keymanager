@@ -650,6 +650,167 @@ async function main() {
         emptyExport && emptyExport.returnValue === true && emptyExport.count === 0,
         JSON.stringify(emptyExport && emptyExport.count));
 
+    /* ------------------------------------------------ per-key export */
+    section("export/import: key wrapping, per the 3.0.5 contract");
+
+    // Contract recovered from a decompile of the webOS 3.0.5 keymanager binary
+    // (KeyServiceHandler::Export @ 0x00011c28, Import @ 0x00013c38):
+    //   export { keyname, wrappingkeyname } -> { wrappedkey }
+    //   import { wrappedkey }               -> { keyname }
+    // Both keys are looked up under the caller's own appId; the wrapped blob
+    // identifies its own wrapping key, which is why import needs no name.
+
+    var PERKEY_SOURCES = [
+        "javascript/utils/Common.js",
+        "javascript/utils/Crypto.js",
+        "javascript/utils/KeyStore.js",
+        "javascript/assistants/ExportAssistant.js",
+        "javascript/assistants/ImportAssistant.js"
+    ];
+
+    function runAs(context, Name, appId, args) {
+        var outer = new harness.Future();
+        var assistant = new context[Name]();
+        assistant.controller = {
+            args: args,
+            message: {
+                applicationID: function () { return appId; },
+                senderServiceName: function () { return appId; }
+            }
+        };
+        try {
+            assistant.run(outer);
+        } catch (thrown) {
+            return Promise.resolve({ __threw: thrown, returnValue: false });
+        }
+        return settle(outer, 20000).catch(function (failed) {
+            return { __failed: failed, returnValue: false };
+        });
+    }
+
+    var WRAP_MATERIAL = crypto.randomBytes(32).toString("base64");
+
+    var appA = newContext({ sources: PERKEY_SOURCES });
+    await settle(appA.KeyStore.loadKey());
+    await settle(appA.KeyStore.loadDatabase());
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "mykey", type: "ASCIIBLOB", nohide: true, keydata: "app-one-secret"
+    }));
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true, keydata: WRAP_MATERIAL
+    }));
+    await settle(appA.KeyStore.putKey("com.example.one", {
+        keyname: "locked", type: "ASCIIBLOB", nohide: true, noexport: true, keydata: "never-leaves"
+    }));
+    await settle(appA.KeyStore.putKey("com.example.two", {
+        keyname: "otherkey", type: "ASCIIBLOB", nohide: true, keydata: "app-two-secret"
+    }));
+
+    var wrapped = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "wrapper" });
+    check("export returns a wrappedkey",
+        wrapped.returnValue === true && wrapped.wrappedkey &&
+            typeof wrapped.wrappedkey.ciphertext === "string",
+        JSON.stringify(wrapped.__threw || wrapped.__failed || ""));
+    check("...naming its wrapping key by fingerprint, not by name",
+        wrapped.returnValue === true && typeof wrapped.wrappedkey.wrappingKey === "string" &&
+            JSON.stringify(wrapped.wrappedkey).indexOf("wrapper") === -1);
+    check("...with no plaintext in it",
+        wrapped.returnValue === true &&
+            Buffer.from(wrapped.wrappedkey.ciphertext, "base64").indexOf("app-one-secret") === -1);
+
+    var sameKeys = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "mykey" });
+    check("wrapping a key with itself is refused (\"same keys\")",
+        sameKeys.__threw && sameKeys.__threw.message === "same keys");
+
+    var noWrapName = await runAs(appA, "ExportAssistant", "com.example.one", { keyname: "mykey" });
+    check("export without wrappingkeyname is refused", noWrapName.__threw !== undefined);
+
+    var unknown = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "mykey", wrappingkeyname: "nosuchkey" });
+    check("an unknown wrapping key is refused (\"unknown key\")",
+        unknown.returnValue !== true);
+
+    var crossApp = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "otherkey", wrappingkeyname: "wrapper" });
+    check("an app cannot export another app's key", crossApp.returnValue !== true);
+
+    var lockedOut = await runAs(appA, "ExportAssistant", "com.example.one",
+        { keyname: "locked", wrappingkeyname: "wrapper" });
+    check("a key stored with noexport is refused",
+        lockedOut.returnValue !== true, JSON.stringify(lockedOut));
+
+    /* ---- import onto a second device that shares the wrapping key ---- */
+    var appB = newContext({ sources: PERKEY_SOURCES });
+    await settle(appB.KeyStore.loadKey());
+    await settle(appB.KeyStore.loadDatabase());
+    await settle(appB.KeyStore.putKey("com.example.one", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true, keydata: WRAP_MATERIAL
+    }));
+
+    var pkImport = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("import succeeds where the wrapping key is present",
+        pkImport.returnValue === true && pkImport.keyname === "mykey",
+        JSON.stringify(pkImport.__threw || pkImport.__failed || pkImport));
+
+    var pkBack = await settle(appB.KeyStore.getKeyDecryptedByName("com.example.one", "mykey"));
+    check("...and the key decrypts under the other device's master key",
+        pkBack !== "__TIMEOUT__" && pkBack.returnValue === true &&
+            pkBack.keydata === "app-one-secret",
+        JSON.stringify(pkBack && pkBack.keydata));
+
+    /* ---- without the wrapping key there is nothing to be had ---- */
+    var appC = newContext({ sources: PERKEY_SOURCES });
+    await settle(appC.KeyStore.loadKey());
+    await settle(appC.KeyStore.loadDatabase());
+    var noWrapper = await runAs(appC, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("import without the wrapping key is refused (\"wrapping key missing\")",
+        noWrapper.returnValue !== true, JSON.stringify(noWrapper));
+
+    // The wrapping key is looked up under the caller's appId, so another app
+    // holding the wrapped blob cannot unwrap it either.
+    await settle(appC.KeyStore.putKey("com.example.evil", {
+        keyname: "wrapper", type: "AES", size: 32, nohide: true,
+        keydata: crypto.randomBytes(32).toString("base64")
+    }));
+    var wrongWrapper = await runAs(appC, "ImportAssistant", "com.example.evil",
+        { wrappedkey: wrapped.wrappedkey });
+    check("another app's wrapping key does not unwrap it", wrongWrapper.returnValue !== true);
+
+    var tamperedWrap = JSON.parse(JSON.stringify(wrapped.wrappedkey));
+    var wb = Buffer.from(tamperedWrap.ciphertext, "base64");
+    wb[0] ^= 0xFF;
+    tamperedWrap.ciphertext = wb.toString("base64");
+    var tamperedImport = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: tamperedWrap, keyname: "tampered" });
+    check("a tampered wrapped key is rejected", tamperedImport.returnValue !== true);
+
+    var pkDup = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey });
+    check("importing over an existing key is refused by default", pkDup.returnValue !== true);
+
+    var pkOver = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey, overwrite: true });
+    check("...and allowed with overwrite (an extension, not in 3.0.5)",
+        pkOver.returnValue === true, JSON.stringify(pkOver));
+
+    var pkRenamed = await runAs(appB, "ImportAssistant", "com.example.one",
+        { wrappedkey: wrapped.wrappedkey, keyname: "renamed" });
+    check("an explicit keyname imports it under that name",
+        pkRenamed.returnValue === true && pkRenamed.keyname === "renamed");
+    var renamedBack = await settle(appB.KeyStore.getKeyDecryptedByName("com.example.one", "renamed"));
+    check("...and it decrypts under the new name",
+        renamedBack !== "__TIMEOUT__" && renamedBack.returnValue === true &&
+            renamedBack.keydata === "app-one-secret");
+
+    var lockedExport = await settle(appA.KeyStore.exportKey("com.example.one", "locked"));
+    check("noexport survives a store/read round trip",
+        lockedExport.returnValue === true && lockedExport.key.noexport === true,
+        JSON.stringify(lockedExport && lockedExport.key));
+
     /* ------------------------------------------------ summary */
     console.log("\n" + passed + " passed, " + failed + " failed, " + skipped + " skipped");
     ROOTS.forEach(harness.rmrf);

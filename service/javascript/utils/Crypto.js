@@ -131,6 +131,65 @@ var KeymanagerCrypto = (function () {
         },
 
         /**
+         * A short, stable fingerprint of some key material.
+         *
+         * A wrapped key carries one so import can work out which of the
+         * caller's keys unwraps it. The legacy service did the same - see
+         * CWrappedKey::hashKey - which is why its import method takes only the
+         * wrapped blob and no wrapping key name.
+         */
+        keyFingerprint: function (material) {
+            var buf = Buffer.isBuffer(material) ? material : Buffer.from(String(material));
+            return nodeCrypto.createHash("sha256").update(buf).digest().subarray(0, 16).toString("base64");
+        },
+
+        /**
+         * Wrap one key's material with another key's material.
+         *
+         * This is what the legacy export/import pair did: a key is handed out
+         * encrypted under a second key that both sides already share, rather
+         * than under a passphrase. The original used AES-128-CBC via
+         * CWrappedKey::wrap; this uses the same AEAD as everything else here.
+         * The wire format is not byte-compatible with a webOS 3.0.5 device -
+         * reproducing CWrappedKey::encode was not worth it for a format that
+         * has no reader left - but the method contract is.
+         */
+        wrapKey: function (wrappingMaterial, plaintext) {
+            var key = deriveKey(wrappingMaterial);
+            var iv = nodeCrypto.randomBytes(IV_BYTES);
+            var cipher = nodeCrypto.createCipheriv(ALGORITHM, key, iv);
+            var body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+
+            return {
+                version: EXPORT_VERSION,
+                cipher: ALGORITHM,
+                wrappingKey: KeymanagerCrypto.keyFingerprint(wrappingMaterial),
+                iv: iv.toString("base64"),
+                tag: cipher.getAuthTag().toString("base64"),
+                ciphertext: body.toString("base64")
+            };
+        },
+
+        unwrapKey: function (wrappingMaterial, envelope) {
+            if (!envelope || typeof envelope !== "object") {
+                throw new Error("Malformed wrapped key: not an object");
+            }
+            if (envelope.version !== EXPORT_VERSION) {
+                throw new Error("Unsupported wrapped key version: " + envelope.version);
+            }
+
+            var key = deriveKey(wrappingMaterial);
+            var decipher = nodeCrypto.createDecipheriv(envelope.cipher || ALGORITHM, key,
+                Buffer.from(envelope.iv, "base64"));
+
+            decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+            return Buffer.concat([
+                decipher.update(Buffer.from(envelope.ciphertext, "base64")),
+                decipher.final()
+            ]);
+        },
+
+        /**
          * Re-encrypt a buffer under a user passphrase, for a backup that has to
          * be readable on a different device.
          *

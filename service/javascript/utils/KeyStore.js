@@ -102,6 +102,31 @@ var KeyStore = (function () {
         return _crypt(true, data);
     }
 
+    /* One stored record's plaintext, in the shape an export wants it.
+     *
+     * Shared by exportKey and exportAll so the two cannot drift on how a
+     * record's type maps to its encoding - ASCIIBLOB is utf-8, everything else
+     * is base64, and getting that wrong on one path only would produce keys
+     * that restore as mojibake.
+     */
+    function exportRecord(keyname, record) {
+        var blob = Buffer.isBuffer(record.keydata)
+            ? record.keydata
+            : Buffer.from(record.keydata.data);
+        var plain = KeymanagerCrypto.decrypt(masterkey, blob);
+
+        return {
+            keyname: keyname,
+            type: record.type,
+            size: record.size,
+            nohide: record.nohide,
+            noexport: record.noexport,
+            keydata: (record.type === "ASCIIBLOB")
+                ? plain.toString("utf-8")
+                : plain.toString("base64")
+        };
+    }
+
     function encrypt(data) {
         return _crypt(false, data);
     }
@@ -265,6 +290,112 @@ var KeyStore = (function () {
         },
 
         /**
+         * One key, decrypted, for the per-key export/import pair.
+         *
+         * Scoped to the caller's own appid, unlike exportAll: an app moving its
+         * own key between devices has no business seeing anyone else's, which
+         * is the whole reason these two can stay in the general ACG group while
+         * exportKeystore/importKeystore cannot.
+         */
+        exportKey: function (appid, keyname) {
+            var future = new Future();
+            var appStore = database[appid];
+
+            if (!appStore || !appStore[keyname]) {
+                future.result = { returnValue: false, message: "Key not found" };
+                return future;
+            }
+
+            try {
+                future.result = { returnValue: true, key: exportRecord(keyname, appStore[keyname]) };
+            } catch (e) {
+                future.result = { returnValue: false, message: e.message };
+            }
+
+            return future;
+        },
+
+        /**
+         * A key's raw plaintext material, for use as a wrapping key.
+         *
+         * exportKey hands back the encoded form (utf-8 or base64 by type);
+         * wrapping needs the bytes themselves.
+         */
+        keyMaterial: function (appid, keyname) {
+            var appStore = database[appid];
+
+            if (!appStore || !appStore[keyname]) {
+                return null;
+            }
+            try {
+                return KeymanagerCrypto.decrypt(masterkey,
+                    Buffer.isBuffer(appStore[keyname].keydata)
+                        ? appStore[keyname].keydata
+                        : Buffer.from(appStore[keyname].keydata.data));
+            } catch (e) {
+                log("Cannot read " + appid + "/" + keyname + ":", e.message);
+                return null;
+            }
+        },
+
+        /**
+         * Which of this app's keys has the given fingerprint, if any.
+         *
+         * A wrapped key names its wrapping key by fingerprint rather than by
+         * name, so import takes only the wrapped blob - the same reason the
+         * legacy import method had no wrapping-key parameter either. Scoped to
+         * one appid, so this cannot be used to probe for another app's keys.
+         */
+        findKeyByFingerprint: function (appid, fingerprint) {
+            var appStore = database[appid];
+            var keyname, material;
+
+            if (!appStore) {
+                return null;
+            }
+            for (keyname in appStore) {
+                if (appStore.hasOwnProperty(keyname)) {
+                    material = KeyStore.keyMaterial(appid, keyname);
+                    if (material && KeymanagerCrypto.keyFingerprint(material) === fingerprint) {
+                        return { keyname: keyname, material: material };
+                    }
+                }
+            }
+            return null;
+        },
+
+        /** The inverse: store one exported key under this device's master key. */
+        importKey: function (appid, key, overwrite) {
+            var future = new Future();
+            var appStore, inner;
+
+            if (!appid || !key || !key.keyname) {
+                future.result = { returnValue: false, message: "Need appid and a key with a keyname." };
+                return future;
+            }
+
+            appStore = database[appid];
+            if (appStore && appStore[key.keyname]) {
+                if (!overwrite) {
+                    future.result = { returnValue: false, message: "Key already exists." };
+                    return future;
+                }
+                delete appStore[key.keyname];
+            }
+
+            inner = KeyStore.putKey(appid, {
+                keyname: key.keyname,
+                type: key.type,
+                size: key.size,
+                nohide: key.nohide,
+                noexport: key.noexport,
+                keydata: key.keydata
+            });
+            future.nest(inner);
+            return future;
+        },
+
+        /**
          * Every key in the store, decrypted, for a passphrase-encrypted export.
          *
          * Decrypted on purpose. Records are encrypted with this device's master
@@ -293,10 +424,7 @@ var KeyStore = (function () {
                             if (appStore.hasOwnProperty(keyname)) {
                                 record = appStore[keyname];
                                 try {
-                                    plain = KeymanagerCrypto.decrypt(masterkey,
-                                        Buffer.isBuffer(record.keydata)
-                                            ? record.keydata
-                                            : Buffer.from(record.keydata.data));
+                                    plain = exportRecord(keyname, record);
                                 } catch (e) {
                                     // One unreadable record must not cost the
                                     // user every other credential they have.
@@ -307,15 +435,7 @@ var KeyStore = (function () {
                                 if (!out[appid]) {
                                     out[appid] = {};
                                 }
-                                out[appid][keyname] = {
-                                    keyname: keyname,
-                                    type: record.type,
-                                    size: record.size,
-                                    nohide: record.nohide,
-                                    keydata: (record.type === "ASCIIBLOB")
-                                        ? plain.toString("utf-8")
-                                        : plain.toString("base64")
-                                };
+                                out[appid][keyname] = plain;
                                 count += 1;
                             }
                         }
@@ -392,6 +512,7 @@ var KeyStore = (function () {
                     type: entry.key.type,
                     size: entry.key.size,
                     nohide: entry.key.nohide,
+                    noexport: entry.key.noexport,
                     keydata: entry.key.keydata
                 });
 

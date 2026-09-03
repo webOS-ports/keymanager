@@ -610,6 +610,82 @@ async function main() {
     check("an export from a future version is refused, not guessed at",
         versionFail !== "__TIMEOUT__" && versionFail && versionFail.returnValue !== true);
 
+    /* ---- a damaged record must not cost the whole export ---- */
+    section("Export/import: a partially damaged store still exports");
+
+    var damagedCtx = newContext({ sources: BACKUP_SOURCES });
+    await settle(damagedCtx.KeyStore.loadKey());
+    await settle(damagedCtx.KeyStore.loadDatabase());
+    await settle(damagedCtx.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "good", type: "ASCIIBLOB", nohide: true, keydata: "still-here"
+    }));
+    await settle(damagedCtx.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "damaged", type: "ASCIIBLOB", nohide: true, keydata: "will-be-broken"
+    }));
+    await new Promise(function (r) { setTimeout(r, 300); });
+
+    var dmgPath = path.join(damagedCtx.__root, "store.db");
+    var dmgStore = JSON.parse(fs.readFileSync(dmgPath, "utf8"));
+    var dmgBytes = dmgStore["com.palm.palmprofile"].damaged.keydata.data;
+    dmgBytes[dmgBytes.length - 1] ^= 0xFF;
+    fs.writeFileSync(dmgPath, JSON.stringify(dmgStore));
+
+    var dmgCtx = newContext({ root: damagedCtx.__root, sources: BACKUP_SOURCES });
+    await settle(dmgCtx.KeyStore.loadKey());
+    await settle(dmgCtx.KeyStore.loadDatabase());
+    var dmgExport = await runAssistant(dmgCtx, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+
+    check("one unreadable record does not fail the export",
+        dmgExport !== "__TIMEOUT__" && dmgExport && dmgExport.returnValue === true,
+        JSON.stringify(dmgExport && (dmgExport.__threw || dmgExport.__failed || "")));
+    check("...the readable ones are still exported",
+        dmgExport.returnValue === true && dmgExport.count === 1, String(dmgExport.count));
+    check("...and the damaged one is named rather than silently dropped",
+        dmgExport.returnValue === true && dmgExport.unreadable.length === 1 &&
+            dmgExport.unreadable[0].indexOf("damaged") !== -1,
+        JSON.stringify(dmgExport.unreadable));
+
+    /* ---- the upgrade path: a store written before the cipher change ---- */
+    section("Export/import: a legacy-format store can still be backed up");
+
+    var oldCtx = newContext({ sources: BACKUP_SOURCES });
+    await settle(oldCtx.KeyStore.loadKey());
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var oldMaster = fs.readFileSync(path.join(oldCtx.__root, "key"));
+    var oldKv = oldCtx.KeymanagerCrypto.legacyKeyAndIv(oldMaster, 32, 16);
+    var oldCipher = crypto.createCipheriv("aes-256-cbc", oldKv.key, oldKv.iv);
+    var oldRecord = Buffer.concat([
+        oldCipher.update(Buffer.from("pre-gcm-password", "utf8")),
+        oldCipher.final()
+    ]);
+    fs.writeFileSync(path.join(oldCtx.__root, "store.db"), JSON.stringify({
+        "com.palm.palmprofile": {
+            password: {
+                keyname: "password", type: "ASCIIBLOB", nohide: true,
+                keydata: { type: "Buffer", data: Array.prototype.slice.call(oldRecord) }
+            }
+        }
+    }));
+
+    var upgradeCtx = newContext({ root: oldCtx.__root, sources: BACKUP_SOURCES });
+    await settle(upgradeCtx.KeyStore.loadKey());
+    await settle(upgradeCtx.KeyStore.loadDatabase());
+    var oldExport = await runAssistant(upgradeCtx, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
+    check("a pre-GCM store exports",
+        oldExport !== "__TIMEOUT__" && oldExport && oldExport.returnValue === true &&
+            oldExport.count === 1, JSON.stringify(oldExport && oldExport.count));
+
+    var upgradeTarget = newContext({ sources: BACKUP_SOURCES });
+    await settle(upgradeTarget.KeyStore.loadKey());
+    await settle(upgradeTarget.KeyStore.loadDatabase());
+    await runAssistant(upgradeTarget, "ImportKeystoreAssistant",
+        { passphrase: PASSPHRASE, keystore: oldExport.keystore });
+    var upgraded = await settle(upgradeTarget.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
+    check("...and restores onto a fresh device with the right value",
+        upgraded !== "__TIMEOUT__" && upgraded.returnValue === true &&
+            upgraded.keydata === "pre-gcm-password",
+        JSON.stringify(upgraded && upgraded.keydata));
+
     /* ---- restoring over existing credentials ---- */
     section("Export/import: restoring onto a device that already has keys");
 

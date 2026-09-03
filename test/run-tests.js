@@ -515,6 +515,11 @@ async function main() {
         keyname: "hidden", type: "AES", size: 32, nohide: false,
         keydata: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64")
     }));
+    // noexport is the opposite case: it must NOT travel.
+    await settle(devA.KeyStore.putKey("com.palm.palmprofile", {
+        keyname: "device-bound", type: "ASCIIBLOB", nohide: true, noexport: true,
+        keydata: "must-never-leave-this-device"
+    }));
 
     var PASSPHRASE = "correct horse battery staple";
     var exported = await runAssistant(devA, "ExportKeystoreAssistant", { passphrase: PASSPHRASE });
@@ -523,6 +528,14 @@ async function main() {
         JSON.stringify(exported && (exported.__threw || exported.errorText || exported)));
     check("...and reports every key it exported",
         exported && exported.count === 3, exported && String(exported.count));
+    check("a noexport key is left out of the backup",
+        exported.returnValue === true && exported.excluded.length === 1 &&
+            exported.excluded[0].indexOf("device-bound") !== -1,
+        JSON.stringify(exported && exported.excluded));
+    check("...and its value is nowhere in the export",
+        JSON.stringify(exported.keystore).indexOf("must-never-leave-this-device") === -1 &&
+            Buffer.from(exported.keystore.ciphertext, "base64")
+                .indexOf("must-never-leave-this-device") === -1);
 
     var envelope = exported && exported.keystore;
     check("the export is scrypt + aes-256-gcm with its parameters recorded",
@@ -555,6 +568,11 @@ async function main() {
     check("...importing all three keys",
         importedB && importedB.imported === 3 && importedB.failed.length === 0,
         JSON.stringify(importedB));
+
+    var notRestored = await settle(devB.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "device-bound"));
+    check("a noexport key does not appear on the restored device",
+        notRestored !== "__TIMEOUT__" && notRestored.returnValue === false,
+        JSON.stringify(notRestored));
 
     var restored = await settle(devB.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "password"));
     check("a password restored onto the other device decrypts there",

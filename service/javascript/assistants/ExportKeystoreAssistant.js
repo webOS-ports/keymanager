@@ -14,6 +14,10 @@
  * caller names. It is a few kilobytes, and taking a path here would mean this
  * service - running as root - writing wherever a caller asked.
  *
+ * A key stored with noexport is left out: the flag says the key must not leave
+ * the device, and a backup is a copy leaving for another one. It is reported in
+ * `excluded` rather than quietly skipped.
+ *
  * ACCESS
  * ------
  * This returns every credential on the device in one call, so unlike the rest
@@ -60,14 +64,18 @@ ExportKeystoreAssistant.prototype.run = function (outerfuture) {
             return;
         }
 
-        log("Exported " + result.count + " key(s), " + result.failed.length + " unreadable.");
+        log("Exported " + result.count + " key(s), " + result.failed.length +
+            " unreadable, " + result.excluded.length + " excluded by noexport.");
 
         outerfuture.result = {
             returnValue: true,
             count: result.count,
-            // Named so the caller can record what did not make it rather than
-            // discovering the gap at restore time.
+            // Both named so the caller can record what did not make it rather
+            // than discovering the gap at restore time - and so the two reasons
+            // stay distinguishable: `unreadable` is a damaged record, `excluded`
+            // is a key the owner marked as one that must not leave the device.
             unreadable: result.failed,
+            excluded: result.excluded,
             keystore: envelope
         };
     });

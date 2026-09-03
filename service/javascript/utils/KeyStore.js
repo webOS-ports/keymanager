@@ -414,6 +414,7 @@ var KeyStore = (function () {
             var out = {};
             var count = 0;
             var failed = [];
+            var excluded = [];
             var appid, keyname, appStore, record, plain;
 
             try {
@@ -423,6 +424,19 @@ var KeyStore = (function () {
                         for (keyname in appStore) {
                             if (appStore.hasOwnProperty(keyname)) {
                                 record = appStore[keyname];
+                                if (record.noexport === true) {
+                                    // A key stored as non-exportable stays on
+                                    // the device. A backup is a copy leaving
+                                    // for another machine, which is exactly
+                                    // what the flag is refusing - so it is
+                                    // honoured here as well as in export.
+                                    // Named, not silently dropped: a user who
+                                    // finds a credential missing after a
+                                    // restore deserves to know it was a
+                                    // decision rather than a failure.
+                                    excluded.push(appid + "/" + keyname);
+                                    continue;
+                                }
                                 try {
                                     plain = exportRecord(keyname, record);
                                 } catch (e) {
@@ -446,7 +460,13 @@ var KeyStore = (function () {
                 return future;
             }
 
-            future.result = { returnValue: true, keys: out, count: count, failed: failed };
+            future.result = {
+                returnValue: true,
+                keys: out,
+                count: count,
+                failed: failed,
+                excluded: excluded
+            };
             return future;
         },
 

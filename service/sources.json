@@ -27,6 +27,12 @@
         "source": "javascript/assistants/ExportAssistant.js"
     },
     {
+        "source": "javascript/assistants/ExportKeystoreAssistant.js"
+    },
+    {
+        "source": "javascript/assistants/ImportKeystoreAssistant.js"
+    },
+    {
         "source": "javascript/assistants/FetchKeyAssistant.js"
     },
     {

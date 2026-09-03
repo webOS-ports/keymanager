@@ -264,6 +264,157 @@ var KeyStore = (function () {
             return future;
         },
 
+        /**
+         * Every key in the store, decrypted, for a passphrase-encrypted export.
+         *
+         * Decrypted on purpose. Records are encrypted with this device's master
+         * key, and that key does not survive a Doctor and does not exist on
+         * another handset - shipping the ciphertext would reproduce exactly the
+         * legacy behaviour where a restore brought accounts back without their
+         * passwords. The caller re-encrypts this under the user's passphrase
+         * immediately; see Crypto.encryptWithPassphrase.
+         *
+         * nohide is carried through but not honoured here: it controls whether
+         * a *reader* gets the key material back, and an export has to contain
+         * it either way or restoring the key would restore an empty shell.
+         */
+        exportAll: function () {
+            var future = new Future();
+            var out = {};
+            var count = 0;
+            var failed = [];
+            var appid, keyname, appStore, record, plain;
+
+            try {
+                for (appid in database) {
+                    if (database.hasOwnProperty(appid)) {
+                        appStore = database[appid];
+                        for (keyname in appStore) {
+                            if (appStore.hasOwnProperty(keyname)) {
+                                record = appStore[keyname];
+                                try {
+                                    plain = KeymanagerCrypto.decrypt(masterkey,
+                                        Buffer.isBuffer(record.keydata)
+                                            ? record.keydata
+                                            : Buffer.from(record.keydata.data));
+                                } catch (e) {
+                                    // One unreadable record must not cost the
+                                    // user every other credential they have.
+                                    log("Cannot export " + appid + "/" + keyname + ":", e.message);
+                                    failed.push(appid + "/" + keyname);
+                                    continue;
+                                }
+                                if (!out[appid]) {
+                                    out[appid] = {};
+                                }
+                                out[appid][keyname] = {
+                                    keyname: keyname,
+                                    type: record.type,
+                                    size: record.size,
+                                    nohide: record.nohide,
+                                    keydata: (record.type === "ASCIIBLOB")
+                                        ? plain.toString("utf-8")
+                                        : plain.toString("base64")
+                                };
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                future.result = { returnValue: false, message: err.message };
+                return future;
+            }
+
+            future.result = { returnValue: true, keys: out, count: count, failed: failed };
+            return future;
+        },
+
+        /**
+         * The other half: put an export back, re-encrypting each record under
+         * *this* device's master key as it goes.
+         *
+         * Existing keys are left alone unless overwrite is set. Restoring onto
+         * a device that already has credentials should not quietly replace a
+         * working password with an older one from a backup.
+         */
+        importAll: function (keys, overwrite) {
+            var future = new Future();
+            var pending = [];
+            var imported = 0;
+            var skipped = 0;
+            var failed = [];
+            var appid, keyname;
+
+            if (!keys || typeof keys !== "object") {
+                future.result = { returnValue: false, message: "No keys to import." };
+                return future;
+            }
+
+            for (appid in keys) {
+                if (keys.hasOwnProperty(appid)) {
+                    for (keyname in keys[appid]) {
+                        if (keys[appid].hasOwnProperty(keyname)) {
+                            pending.push({ appid: appid, key: keys[appid][keyname] });
+                        }
+                    }
+                }
+            }
+
+            function next() {
+                if (pending.length === 0) {
+                    future.result = {
+                        returnValue: true,
+                        imported: imported,
+                        skipped: skipped,
+                        failed: failed
+                    };
+                    return;
+                }
+
+                var entry = pending.shift();
+                var appStore = database[entry.appid];
+                var exists = appStore && appStore[entry.key.keyname];
+
+                if (exists && !overwrite) {
+                    skipped += 1;
+                    return next();
+                }
+                if (exists) {
+                    delete appStore[entry.key.keyname];
+                }
+
+                // A fresh object each time: putKey stores what it is given and
+                // replaces keydata with the ciphertext, so handing it the
+                // caller's object would mutate the export in place.
+                var inner = KeyStore.putKey(entry.appid, {
+                    keyname: entry.key.keyname,
+                    type: entry.key.type,
+                    size: entry.key.size,
+                    nohide: entry.key.nohide,
+                    keydata: entry.key.keydata
+                });
+
+                inner.then(this, function putCB(f) {
+                    var result;
+                    try {
+                        result = f.result;
+                    } catch (e) {
+                        result = { returnValue: false, message: e.message };
+                    }
+                    if (result && result.returnValue === true) {
+                        imported += 1;
+                    } else {
+                        failed.push(entry.appid + "/" + entry.key.keyname);
+                    }
+                    next();
+                });
+            }
+
+            next();
+            return future;
+        },
+
         loadDatabase: function () {
             var future = new Future();
             fs.access(keyStoreFile, function existsCB(error) {

@@ -9,5 +9,9 @@
         "com.palm.keymanager/keyInfo",
         "com.palm.keymanager/remove",
         "com.palm.keymanager/store"
+    ],
+    "keymanager-service.backup": [
+        "com.palm.keymanager/exportKeystore",
+        "com.palm.keymanager/importKeystore"
     ]
 }

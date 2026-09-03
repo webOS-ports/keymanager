@@ -1,4 +1,11 @@
 {
- "allowedNames": ["com.palm.keymanager"],
- "keymanager-service.operation": ["dev"]
+    "allowedNames": [
+        "com.palm.keymanager"
+    ],
+    "keymanager-service.operation": [
+        "dev"
+    ],
+    "keymanager-service.backup": [
+        "dev"
+    ]
 }

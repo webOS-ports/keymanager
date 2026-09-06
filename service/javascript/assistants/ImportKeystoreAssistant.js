@@ -74,7 +74,12 @@ ImportKeystoreAssistant.prototype.run = function (outerfuture) {
             returnValue: true,
             imported: result.imported,
             skipped: result.skipped,
-            failed: result.failed
+            failed: result.failed,
+            // Where the keys landed. The namespace comes from the export rather
+            // than from the hub's view of the caller - a restore has to write
+            // into apps that are not the backup service - so the caller is told
+            // which ones it wrote, having no way to have constrained them.
+            namespaces: result.namespaces
         };
     });
 

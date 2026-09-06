@@ -486,6 +486,25 @@ var KeyStore = (function () {
             var failed = [];
             var appid, keyname;
 
+            /* Which app namespaces this import actually wrote into.
+             *
+             * An ordinary store() can only ever write the caller's own
+             * namespace: StoreAssistant takes it from getAppId(), which reads
+             * the hub's view of who called. This call is the exception - the
+             * namespace comes out of the export itself, because that is what a
+             * restore has to do: put every key back where it belongs, in an
+             * app that
+             * is not the backup service.
+             *
+             * That cannot be checked against the caller without defeating the
+             * feature, and it cannot be authenticated cryptographically either:
+             * the only secret shared across devices is the user's passphrase,
+             * and whoever calls this chooses it. So it is recorded instead.
+             * Keys landing somewhere the user did not expect then show up in
+             * the log rather than only in the store.
+             */
+            var namespaces = {};
+
             if (!keys || typeof keys !== "object") {
                 future.result = { returnValue: false, message: "No keys to import." };
                 return future;
@@ -503,11 +522,19 @@ var KeyStore = (function () {
 
             function next() {
                 if (pending.length === 0) {
+                    var written = Object.keys(namespaces).sort();
+                    if (written.length > 0) {
+                        log("Import wrote to " + written.length + " namespace(s): " +
+                            written.map(function (name) {
+                                return name + " (" + namespaces[name] + ")";
+                            }).join(", "));
+                    }
                     future.result = {
                         returnValue: true,
                         imported: imported,
                         skipped: skipped,
-                        failed: failed
+                        failed: failed,
+                        namespaces: written
                     };
                     return;
                 }
@@ -545,6 +572,7 @@ var KeyStore = (function () {
                     }
                     if (result && result.returnValue === true) {
                         imported += 1;
+                        namespaces[entry.appid] = (namespaces[entry.appid] || 0) + 1;
                     } else {
                         failed.push(entry.appid + "/" + entry.key.keyname);
                     }

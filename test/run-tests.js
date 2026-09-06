@@ -569,6 +569,24 @@ async function main() {
         importedB && importedB.imported === 3 && importedB.failed.length === 0,
         JSON.stringify(importedB));
 
+    /* The namespaces an import wrote into are reported, not just counted.
+     *
+     * This call is the one place a namespace comes from the payload rather than
+     * from the hub's view of the caller - a restore has to write into apps that
+     * are not the backup service, so it cannot be constrained to the caller
+     * without losing the feature, and it cannot be authenticated either: the
+     * only secret shared across devices is the user's passphrase, and whoever
+     * calls this picks it. Recording where the keys landed is what is left. */
+    check("the import reports which namespaces it wrote into",
+        importedB && Array.isArray(importedB.namespaces) &&
+            importedB.namespaces.indexOf("com.palm.palmprofile") !== -1 &&
+            importedB.namespaces.indexOf("org.webosports.cdav") !== -1,
+        JSON.stringify(importedB && importedB.namespaces));
+    check("...and only those, in sorted order",
+        importedB && importedB.namespaces.length === 2 &&
+            importedB.namespaces[0] === "com.palm.palmprofile",
+        JSON.stringify(importedB && importedB.namespaces));
+
     var notRestored = await settle(devB.KeyStore.getKeyDecryptedByName("com.palm.palmprofile", "device-bound"));
     check("a noexport key does not appear on the restored device",
         notRestored !== "__TIMEOUT__" && notRestored.returnValue === false,

@@ -156,11 +156,9 @@ var KeyStore = (function () {
                 key;
 
             appStore = database[appid];
-            debug("Got appstore: ", appStore);
 
             if (appStore && appStore[keyname]) {
                 key = KeyStore.copyKey({}, appStore[keyname]);
-                debug("Got key: ", key);
                 if (!Buffer.isBuffer(key.keydata)) {
                     debug("Have to create buffer from keydata.");
                     key.keydata = new Buffer.from(key.keydata.data);
@@ -182,12 +180,10 @@ var KeyStore = (function () {
 
             future.then(this, function rawCB() {
                 var result = future.result, cData, key;
-                debug("Got raw result:", result);
                 if (result.returnValue === true) {
                     key = result.key;
                     if (key.nohide) {
                         cData = new Buffer.from(key.keydata); //we store keydata as buffer array.
-                        debug("ciphered: ", cData.toString("utf-8"));
                         decrypt(cData).then(this, function decryptCB(f2) {
                             var r2 = f2.result;
                             if (r2.returnValue === true) {
@@ -196,7 +192,6 @@ var KeyStore = (function () {
                                 } else {
                                     key.keydata = r2.data.toString("base64");
                                 }
-                                debug("deciphered: ", key.keydata);
                                 key.returnValue = true;
                                 future.result = key;
                             } else {
@@ -237,7 +232,6 @@ var KeyStore = (function () {
                 appstore = {};
                 database[appid] = appstore;
             }
-            debug("Got appstore:", appstore);
 
             if (appstore[key.keyname]) {
                 future.result = { returnValue: false, message: "Key already exists."};
@@ -254,8 +248,6 @@ var KeyStore = (function () {
             future.then(this, function cryptCB() {
                 var result = future.result;
                 if (result.returnValue === true) {
-                    debug("Unciphered: ", cData.toString("utf-8"));
-                    debug("Ciphered: ", result.data.toString("utf-8"));
                     key.keydata = result.data; //we store the raw buffer
 
                     appstore[key.keyname] = key;

@@ -41,6 +41,7 @@ function rmrf(target) {
  *               crypto + in-memory store, which is what sources.json loads.
  *   nodeCrypto  stand in a different crypto module (see the hkdf fallback test)
  *   quiet       silence the service's log()/debug()
+ *   logSink     a function that gets every log() and debug() call instead
  */
 function loadService(options) {
     "use strict";
@@ -68,8 +69,8 @@ function loadService(options) {
         keyFile: path.join(root, "key"),
         keyStoreFile: path.join(root, "store.db"),
 
-        log: options.quiet ? function () { return; } : console.log,
-        debug: function () { return; }
+        log: options.logSink || (options.quiet ? function () { return; } : console.log),
+        debug: options.logSink || function () { return; }
     };
     sandbox.global = sandbox;
 

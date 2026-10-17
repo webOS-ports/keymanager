@@ -240,6 +240,63 @@ async function main() {
     var afterDel = await settle(storeCtx.KeyStore.getKeyDecryptedByName("org.webosports.test", "aeskey"));
     check("...and it is gone afterwards", afterDel && afterDel.returnValue === false);
 
+    /* ------------------------------------------------ logs */
+    section("Logs: no key material in them");
+
+    // Everything log() and debug() are handed, as the journal would get it:
+    // debug() is log() on a device (prologue.js).
+    var logged = [];
+    var logCtx = newContext({
+        quiet: false,
+        logSink: function () {
+            logged.push(Array.prototype.map.call(arguments, function (a) {
+                if (Buffer.isBuffer(a)) {
+                    return a.toString("utf-8") + " " + a.toString("base64") + " " + a.toString("hex");
+                }
+                return typeof a === "string" ? a : JSON.stringify(a);
+            }).join(" "));
+        },
+        sources: [
+            "javascript/utils/Common.js",
+            "javascript/utils/Crypto.js",
+            "javascript/utils/KeyStore.js",
+            "javascript/assistants/CryptAssistant.js"
+        ]
+    });
+    await settle(logCtx.KeyStore.loadKey());
+    await settle(logCtx.KeyStore.loadDatabase());
+
+    var asciiSecret = "GEZDGNBVGY3TQOJQ-log-test";
+    var aesSecretBytes = crypto.randomBytes(32);
+    var aesSecret = aesSecretBytes.toString("base64");
+    await settle(logCtx.KeyStore.putKey("org.webosports.test", {
+        keyname: "logascii", type: "ASCIIBLOB", nohide: true, keydata: asciiSecret
+    }));
+    await settle(logCtx.KeyStore.putKey("org.webosports.test", {
+        keyname: "logaes", type: "AES", size: 32, nohide: true, keydata: aesSecret
+    }));
+    var logRead = await settle(logCtx.KeyStore.getKeyDecryptedByName("org.webosports.test", "logascii"));
+    await settle(logCtx.KeyStore.getKeyDecryptedByName("org.webosports.test", "logaes"));
+    var logOuter = new harness.Future();
+    var logCrypt = new logCtx.CryptAssistant();
+    logCrypt.controller = {
+        args: { keyname: "logaes", algorithm: "AES", data: Buffer.from("sixteen bytes ok").toString("base64") },
+        message: {
+            applicationID: function () { return "org.webosports.test"; },
+            senderServiceName: function () { return "org.webosports.test"; }
+        }
+    };
+    logCrypt.run(logOuter);
+    var logEnc = await settle(logOuter);
+
+    var allLogs = logged.join("\n");
+    check("the service did log (so the check below means something)", logged.length > 0);
+    check("...and the keys were stored, read and used",
+        logRead && logRead.keydata === asciiSecret && logEnc && logEnc.returnValue === true);
+    check("an ASCIIBLOB's text never reaches the log", allLogs.indexOf(asciiSecret) < 0);
+    check("a binary key never reaches the log, in base64 or hex",
+        allLogs.indexOf(aesSecret) < 0 && allLogs.indexOf(aesSecretBytes.toString("hex")) < 0);
+
     /* ------------------------------------------------ KeyStore: on disk */
     section("KeyStore: what lands on disk");
 

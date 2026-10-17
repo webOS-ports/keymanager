@@ -35,7 +35,7 @@ CryptAssistant.prototype.run = function (outerfuture) {
             }
 
             keydata = new Buffer.from(result.keydata, "base64");
-            debug("Keydata: ", keydata, " with length", keydata.length);
+            debug("Key of ", keydata.length, " bytes.");
             algorithm = result.type + "-" + keydata.length * 8;
             if (args.mode !== "none") {
                 algorithm += "-" + args.mode;

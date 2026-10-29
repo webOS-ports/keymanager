@@ -12,7 +12,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
-const {boot} = require('./boot');
+const fs = require('fs');
+const path = require('path');
+const {boot, tempDir} = require('./boot');
 
 // An exportKeystore envelope around any JSON text, as a backup made elsewhere could be.
 function envelope(passphrase, text) {
@@ -122,5 +124,36 @@ test('K5: crypt whose cipher fails at its end answers at once', async () => {
 		assert.strictEqual((await km.ask('crypt', {keyname: 'a', algorithm: 'AES', mode: 'cbc', data: 'AAAA'})).returnValue, true);
 	} finally {
 		km.cleanup();
+	}
+});
+
+test('K6: a keystore that will not load answers every call with why, and writes nothing', async () => {
+	const root = tempDir();
+	try {
+		// store.db that is a directory; a keystore directory under a file, which mkdir cannot make.
+		const unreadable = path.join(root, 'a');
+		fs.mkdirSync(path.join(unreadable, 'store.db'), {recursive: true});
+		fs.writeFileSync(path.join(root, 'file'), '');
+		for (const [dir, errorText] of [
+			[unreadable, 'Keystore not available: store.db could not be read (EISDIR)'],
+			[path.join(root, 'file', 'keystore'), 'Keystore not available: the keystore directory could not be made (ENOTDIR)']]) {
+			const km = await boot({dir, timeoutS: 3});
+			try {
+				const before = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : null;
+				for (const [m, p] of [['keyInfo', {keyname: 'x'}], ['store', {keyname: 'x', keydata: 'AAAA', type: 'AES'}],
+					['initialize', {}]]) {
+					const t0 = Date.now();
+					assert.deepStrictEqual(await km.ask(m, p),
+						{errorText, errorCode: -1, exception: '[object Object]', returnValue: false}, m);
+					assert.ok(Date.now() - t0 < 1000);
+				}
+				assert.deepStrictEqual(fs.existsSync(dir) ? fs.readdirSync(dir).sort() : null, before);
+				assert.ok(fs.statSync(path.join(unreadable, 'store.db')).isDirectory());
+			} finally {
+				km.cleanup();
+			}
+		}
+	} finally {
+		fs.rmSync(root, {recursive: true, force: true});
 	}
 });

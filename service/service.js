@@ -36,7 +36,7 @@ async function start({palmbus, exit, idleMs = IDLE_MS, log = console, keystoreDi
 	const commands = createCommands({keyStore, log});
 	bus.serve(createTable({commands, ready, log, timeoutS, subscribe: bus.subscribe}));
 	const state = await ready;
-	log.log(NAME + ': ' + (state === 'ok' ? 'up' : 'set-up did not finish') + ' (' + NAMES.length +
+	log.log(NAME + ': ' + (state === 'ok' ? 'up' : 'set-up did not finish: ' + state.stuck) + ' (' + NAMES.length +
 		' methods, node ' + process.version + ')');
 	return {bus, keyStore, commands, state};
 }

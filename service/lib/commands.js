@@ -402,21 +402,25 @@ function describe(e) {
 	sources.json, so mojoservice could not make its assistant, and answered
 	every call so (NO_ASSISTANT); the run that would have said "Not yet
 	implemented." never ran.
-	ready resolves to 'ok', or to 'stuck' when the set-up never finished:
-	mojoservice then never ran a command, and nothing answered.
+	ready resolves to 'ok', or to {stuck: reason} when the set-up could not
+	finish: mojoservice then never ran a command, and nothing answered at
+	all (K6). Every command now answers with the reason instead.
 */
 function createTable({commands, ready, log = console, timeoutS, subscribe}) {
 	const table = {};
 	for (const name of NAMES) {
 		const m = method(SERVICE, name, (args, ctx) => commands[name](args, ctx), {timeoutS, log, subscribe, describe});
+		const stuck = method(SERVICE, name, args => raise({errorCode: -1, message: 'Keystore not available: ' + args.reason}),
+			{timeoutS, log, subscribe, describe});
 		table[name] = {
 			raw: true,
 			rawPayload: true,
 			// mojoservice's own timeout answers (mojo.js); the bus's must not come first.
 			timeoutMs: 2147483647,
 			handler: async (text, ctx) => {
-				if ((await ready) === 'stuck') {
-					return never();
+				const state = await ready;
+				if (state !== 'ok') {
+					return stuck.handler({reason: state.stuck}, ctx);
 				}
 				let args;
 				try {

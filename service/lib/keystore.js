@@ -410,28 +410,32 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 		},
 
 		/* The set-up the service assistant did before any command ran:
-		   -> 'ok', or 'stuck' when it never finished (mkdir failed, or the
-		   store could not be read), and no command ever ran. */
+		   -> 'ok', or {stuck: reason} when it could not finish: the keystore
+		   directory could not be made, or store.db is there but will not
+		   read. The old service then never ran a command (K6); the commands
+		   now answer with the reason, and nothing is written. */
 		load() {
 			return new Promise(resolve => {
 				fs.access(keystoreFolder, function existsCB(error) {
 					if (!error) {
-						resolve(true);
+						resolve(null);
 						return;
 					}
 					fs.mkdir(keystoreFolder, function (err) {
-						resolve(!err);
+						resolve(err ? 'the keystore directory could not be made (' + (err.code || err.name) + ')' : null);
 					});
 				});
-			}).then(dirOk => {
-				if (!dirOk) {
-					return 'stuck';
+			}).then(dirError => {
+				if (dirError) {
+					return {stuck: dirError};
 				}
-				return store.loadKey().then(r => r.returnValue ? store.loadDatabase().then(() => 'ok') : 'ok');
+				return store.loadKey().then(r => r.returnValue ? store.loadDatabase().then(d => d.unreadable ?
+					{stuck: 'store.db could not be read (' + d.unreadable + ')'} : 'ok') : 'ok');
 			});
 		},
 
-		// -> {returnValue: true} once the database is in memory; never settles when the file will not read.
+		// -> {returnValue: true} once the database is in memory; {returnValue: false, unreadable: code}
+		// when the file is there but will not read (the old code never settled then: K6).
 		loadDatabase() {
 			return new Promise(resolve => {
 				fs.access(keyStoreFile, function existsCB(error) {
@@ -443,6 +447,7 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 					fs.readFile(keyStoreFile, function fileReadCB(err, data) {
 						if (err) {
 							say('Could not read store file. Error: ', err);
+							resolve({returnValue: false, unreadable: err.code || err.name});
 							return;
 						}
 						try {

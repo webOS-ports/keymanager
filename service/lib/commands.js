@@ -93,7 +93,9 @@ function createCommands({keyStore: ks, log = console}) {
 			try {
 				keydata = Buffer.from(result.keydata, 'base64');
 			} catch (e) {
-				return orHang();
+				// K4: a key that is not nohide comes without its keydata; the old code
+				// threw here and never answered.
+				return raise(mismatch || {errorCode: -1, message: 'Key cannot be used: it was not stored with nohide.'});
 			}
 			let algorithm = result.type + '-' + keydata.length * 8;
 			if (mode !== 'none') {

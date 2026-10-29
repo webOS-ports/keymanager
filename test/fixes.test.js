@@ -84,3 +84,20 @@ test('K3: generate with a size randomBytes will not take answers at once', async
 		km.cleanup();
 	}
 });
+
+test('K4: crypt with a key that is not nohide answers at once', async () => {
+	const km = await boot({timeoutS: 3});
+	try {
+		await km.ask('store', {keyname: 'hid', keydata: crypto.randomBytes(16).toString('base64'), type: 'AES'});
+		const t0 = Date.now();
+		assert.deepStrictEqual(await km.ask('crypt', {keyname: 'hid', algorithm: 'AES', data: 'AAAA'}),
+			{errorText: 'Key cannot be used: it was not stored with nohide.', errorCode: -1, exception: '[object Object]',
+				returnValue: false});
+		assert.ok(Date.now() - t0 < 1000);
+		// A wrong algorithm is still the answer it was.
+		assert.strictEqual((await km.ask('crypt', {keyname: 'hid', algorithm: 'DES', data: 'AAAA'})).errorText,
+			'Stored key algorithm and parameter differ.');
+	} finally {
+		km.cleanup();
+	}
+});

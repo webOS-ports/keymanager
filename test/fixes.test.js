@@ -157,3 +157,31 @@ test('K6: a keystore that will not load answers every call with why, and writes 
 		fs.rmSync(root, {recursive: true, force: true});
 	}
 });
+
+test('K7: importKeystore goes on past an entry it cannot import, and names it as failed', async () => {
+	const km = await boot({timeoutS: 3});
+	try {
+		const good = name => ({keyname: name, type: 'ASCIIBLOB', keydata: 'fixture-' + name, nohide: true});
+		for (const [keys, failed] of [
+			[{'org.webosports.test': {bad: null, g1: good('g1')}}, ['org.webosports.test/bad']],
+			[{'org.webosports.test': {g1: good('g1'), bad: null, g2: good('g2')}}, ['org.webosports.test/bad']],
+			[{'org.webosports.test': {g1: good('g1'), num: {keyname: 'num', type: 'AES', keydata: 5}, g2: good('g2')}},
+				['org.webosports.test/num']]]) {
+			const t0 = Date.now();
+			const r = await km.ask('importKeystore', {passphrase: 'pp-fixture', keystore: envelope('pp-fixture', JSON.stringify(keys))});
+			assert.ok(Date.now() - t0 < 1500);
+			const names = Object.keys(keys['org.webosports.test']).filter(n => n.startsWith('g'));
+			assert.deepStrictEqual(r, {returnValue: true, imported: names.length, skipped: 0, failed,
+				namespaces: ['org.webosports.test']});
+			for (const n of names) {
+				assert.strictEqual((await km.ask('fetchKey', {keyname: n})).keydata, 'fixture-' + n);
+				assert.deepStrictEqual(await km.ask('remove', {keyname: n}), {returnValue: true});
+			}
+			assert.strictEqual((await km.ask('keyInfo', {keyname: 'num'})).returnValue, false);
+		}
+		// What the caller sent as keydata is not in the log.
+		assert.ok(!km.logs.some(l => /fixture-|Received type number/.test(l)));
+	} finally {
+		km.cleanup();
+	}
+});

@@ -21,8 +21,8 @@
 	back. What the futures did decide is where an exception ends up, and
 	the methods keep that (commands.js): a throw straight out of a method
 	is the command's error, one inside a .then callback was caught by the
-	future and the command never answered. importAll() is the only method
-	here with code in such a callback; it returns HANG for a throw there.
+	future and the command never answered. importAll() was the only method
+	here with code in such a callback (K7).
 
 	Never log key material here, or anything a caller sent as a key (PR #16).
 */
@@ -31,8 +31,6 @@ const fs = require('fs');
 const path = require('path');
 const nodeCrypto = require('crypto');
 const KeymanagerCrypto = require('./crypto');
-
-const HANG = Symbol('no reply');
 
 /* K1: a key or an app is only what the store itself holds. A plain
    object answers for names it inherits (toString, constructor,
@@ -142,7 +140,6 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 	}
 
 	const store = {
-		HANG,
 
 		/* A deep copy of a record: a Buffer copied, an array as an array, null
 		   as null. K2: the old one copied every object property by property, so
@@ -342,16 +339,18 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 		},
 
 		/* An export put back, each key under this device's master key; one
-		   already there is skipped unless overwrite. The old code went from
-		   key to key in the .then of the one before: once the first key was
-		   stored, a throw ended the import with no answer (HANG). */
+		   already there is skipped unless overwrite. K7: the old code went
+		   from key to key in the .then of the one before: once the first key
+		   was stored, an entry that threw (not an object, keydata that is
+		   not a string) ended the import with no answer, and before that its
+		   error was the answer. Such an entry is now one that failed, named
+		   by the export's own key name, and the import goes on. */
 		importAll(keys, overwrite) {
 			const pending = [];
 			let imported = 0;
 			let skipped = 0;
 			const failed = [];
 			const namespaces = Object.create(null);
-			let inThen = false;
 
 			if (!keys || typeof keys !== 'object') {
 				return {returnValue: false, message: 'No keys to import.'};
@@ -360,7 +359,7 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 				if (own(keys, appid)) {
 					for (const keyname in keys[appid]) {
 						if (Object.prototype.hasOwnProperty.call(keys[appid], keyname)) {
-							pending.push({appid, key: keys[appid][keyname]});
+							pending.push({appid, name: keyname, key: keys[appid][keyname]});
 						}
 					}
 				}
@@ -385,7 +384,6 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 						noexport: entry.key.noexport,
 						keydata: entry.key.keydata
 					});
-					inThen = true;
 					if (result && result.returnValue === true) {
 						imported += 1;
 						namespaces[entry.appid] = (namespaces[entry.appid] || 0) + 1;
@@ -393,11 +391,8 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 						failed.push(entry.appid + '/' + entry.key.keyname);
 					}
 				} catch (e) {
-					if (!inThen) {
-						throw e;
-					}
-					say('importKeystore stopped: ' + (e && e.name));
-					return HANG;
+					say('importKeystore: an entry could not be imported: ' + (e && e.name));
+					failed.push(entry.appid + '/' + entry.name);
 				}
 			}
 
@@ -505,4 +500,4 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 	return store;
 }
 
-module.exports = {createKeyStore, HANG};
+module.exports = {createKeyStore};

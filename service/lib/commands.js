@@ -15,7 +15,8 @@
 	  as it was, which has no errorCode;
 	- a throw inside a future's .then callback was caught by the future
 	  and the command never answered: mojoservice answered 504 after its
-	  60 s command timeout. never() is that;
+	  60 s command timeout. Those were bugs (K3-K7), and every one now
+	  answers; mojo.js still answers 504 for a command that runs too long;
 	- the order of the checks, and so which error a bad call gets, is the
 	  old order.
 
@@ -26,7 +27,6 @@
 const nodeCrypto = require('crypto');
 const KeymanagerCrypto = require('./crypto');
 const {method} = require('./mojo');
-const {HANG} = require('./keystore');
 
 const SERVICE = 'com.palm.keymanager';
 // mojoservice's answer when it could not make a command's assistant, and for a payload it could
@@ -40,8 +40,6 @@ const NAMES = ['initialize', 'crypt', 'export', 'exportKeystore', 'importKeystor
 function raise(value) {
 	throw value;
 }
-
-const never = () => new Promise(() => {});
 
 /* Common.js's getAppId: the app id the hub gives (a WAM app's comes as
    "<appid> <pid>"), else the calling service's name. A message whose
@@ -217,9 +215,6 @@ function createCommands({keyStore: ks, log = console}) {
 				raise({errorCode: -1, message: 'Export decrypted but does not parse.'});
 			}
 			const result = ks.importAll(keys, args.overwrite === true);
-			if (result === HANG) {
-				return never();
-			}
 			if (!result || result.returnValue !== true) {
 				raise({errorCode: -1, message: (result && result.message) || 'Could not import the keystore.'});
 			}

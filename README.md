@@ -77,9 +77,10 @@ code, tests and commits refer to them by these numbers:
 - K6: with a `store.db` that cannot be read (a directory, an I/O error), or
   a keystore directory that cannot be made, the service never answered
   anything, not even after the command timeout.
-- K7: `importKeystore` stopped without an answer at an entry that is not an
-  object, or whose keydata is not a string, unless it was the first; the
-  keys before it stayed imported.
+- K7: `importKeystore` stopped without an answer (504) at an entry that is
+  not an object, or whose keydata is not a string; the keys before it
+  stayed imported. When it was the first entry, its error was the answer,
+  and nothing was imported.
 - K8: `fetchKey` without an app id answered errorCode -9999: its error said
   `erroCode`.
 

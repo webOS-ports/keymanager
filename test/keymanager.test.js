@@ -235,16 +235,24 @@ test('crypt: with an iv, without one (key and iv from the key), and back', async
 });
 
 test('a command that never finished: 504 after the command timeout, as mojoservice answered', async () => {
-	const km = await boot({timeoutS: 1});
+	/* The methods that never finished were the old bugs K3-K7, which are
+	   mended one by one; a stand-in command never finishes here, behind
+	   the same table. */
+	const {createTable} = require('../service/lib/commands');
+	const logs = [];
+	const sink = (...a) => logs.push(a.join(' '));
+	const table = createTable({commands: {keyInfo: () => new Promise(() => {})}, ready: Promise.resolve('ok'),
+		timeoutS: 1, log: {log: sink, error: sink}});
+	const hold = setTimeout(() => {}, 5000);
 	try {
-		await km.ask('store', {keyname: 'c', keydata: crypto.randomBytes(16).toString('base64'), type: 'AES', nohide: true});
-		// A block that is not whole, with no padding: the cipher fails at its end, and the old service never answered.
-		const r = await km.ask('crypt', {keyname: 'c', algorithm: 'AES', iv: crypto.randomBytes(16).toString('base64'),
-			data: Buffer.alloc(5).toString('base64'), decrypt: true});
+		const t0 = Date.now();
+		const r = await table.keyInfo.handler(JSON.stringify({keyname: 'c'}), {});
 		assert.strictEqual(r.errorCode, 504);
-		assert.strictEqual(r.errorText, 'commandTimeout in com.palm.keymanager/crypt');
+		assert.strictEqual(r.errorText, 'commandTimeout in com.palm.keymanager/keyInfo');
+		assert.strictEqual(r.returnValue, false);
+		assert.ok(Date.now() - t0 >= 900);
 	} finally {
-		km.cleanup();
+		clearTimeout(hold);
 	}
 });
 

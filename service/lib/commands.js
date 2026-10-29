@@ -83,12 +83,11 @@ function createCommands({keyStore: ks, log = console}) {
 			/* From here the old code ran in a .then callback. A wrong algorithm
 			   set the error and went on; that error is the answer unless a later
 			   one in the try below replaced it. A throw outside that try (a key
-			   that is not nohide has no keydata), and a cipher that fails at its
-			   end (that was an 'error' event no one listened to), left no answer
-			   but that one. */
+			   that is not nohide has no keydata, K4), and a cipher that fails at
+			   its end (an 'error' event no one listened to, K5), left no answer
+			   but that one; both are answered now. */
 			const mismatch = args.algorithm !== result.type ?
 				{errorCode: -1, message: 'Stored key algorithm and parameter differ.'} : null;
-			const orHang = () => mismatch ? raise(mismatch) : never();
 			let keydata;
 			try {
 				keydata = Buffer.from(result.keydata, 'base64');
@@ -128,7 +127,10 @@ function createCommands({keyStore: ks, log = console}) {
 			try {
 				tail = cipher.final();
 			} catch (e) {
-				return orHang();
+				// K5: a cipher that fails at its end (input not a whole number of
+				// blocks with pad "none", bad padding on decrypt); the old code
+				// never answered.
+				return raise(mismatch || {errorCode: -1, message: e.message});
 			}
 			if (mismatch) {
 				raise(mismatch);

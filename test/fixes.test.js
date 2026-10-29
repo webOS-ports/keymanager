@@ -101,3 +101,26 @@ test('K4: crypt with a key that is not nohide answers at once', async () => {
 		km.cleanup();
 	}
 });
+
+test('K5: crypt whose cipher fails at its end answers at once', async () => {
+	const km = await boot({timeoutS: 3});
+	try {
+		// A fixed key, so the decrypt below fails its padding check every time.
+		const keydata = crypto.createHash('sha256').update('k5-fixture').digest().subarray(0, 16).toString('base64');
+		await km.ask('store', {keyname: 'a', keydata, type: 'AES', nohide: true});
+		for (const [params, errorText] of [
+			[{pad: 'none', data: 'AAAA'}, 'error:1C80006B:Provider routines::wrong final block length'],
+			[{decrypt: true, data: Buffer.alloc(16).toString('base64')}, 'error:1C800064:Provider routines::bad decrypt']]) {
+			const t0 = Date.now();
+			assert.deepStrictEqual(await km.ask('crypt', Object.assign({keyname: 'a', algorithm: 'AES', mode: 'cbc'}, params)),
+				{errorText, errorCode: -1, exception: '[object Object]', returnValue: false});
+			assert.ok(Date.now() - t0 < 1000);
+		}
+		// A wrong algorithm is still the answer it was, and a good call still works.
+		assert.strictEqual((await km.ask('crypt', {keyname: 'a', algorithm: 'DES', mode: 'cbc', pad: 'none', data: 'AAAA'})).errorText,
+			'Stored key algorithm and parameter differ.');
+		assert.strictEqual((await km.ask('crypt', {keyname: 'a', algorithm: 'AES', mode: 'cbc', data: 'AAAA'})).returnValue, true);
+	} finally {
+		km.cleanup();
+	}
+});

@@ -288,8 +288,9 @@ function createCommands({keyStore: ks, log = console}) {
 						}
 					});
 				} catch (e) {
-					// A size randomBytes will not take: thrown in a .then, so no answer.
-					say('generate: ' + e.name);
+					// K3: a size randomBytes will not take ("16", -1, 2^32: HMACSHA1 has no
+					// size rule). The old code threw this in a .then and never answered.
+					reject({errorCode: -1, message: 'Need valid size parameter'});
 				}
 			});
 		},

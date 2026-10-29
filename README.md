@@ -66,8 +66,9 @@ code, tests and commits refer to them by these numbers:
   be read again: `keyInfo`, `fetchKey`, `crypt` and `generate` of that name
   failed with "Cannot convert undefined or null to object". An array came
   back as an object with a `length`.
-- K3: `generate` with a size `randomBytes` will not take (`"16"`, `1.5`,
-  `-1`, for HMACSHA1, which has no size rule) never answered: 504 after 60 s.
+- K3: `generate` with a size `randomBytes` will not take (`"16"`, `-1`,
+  `2^32`, for HMACSHA1, which has no size rule) never answered: 504 after
+  60 s.
 - K4: `crypt` with a key that is not `nohide` never answered (504), unless
   the algorithm given was not the key's.
 - K5: `crypt` whose cipher failed at its end (a wrong key or iv when

@@ -68,3 +68,19 @@ test('K2: a key stored with null or an array in it reads back as it was stored',
 		km.cleanup();
 	}
 });
+
+test('K3: generate with a size randomBytes will not take answers at once', async () => {
+	const km = await boot({timeoutS: 3});
+	try {
+		for (const size of ['16', -1, 2 ** 32]) {
+			const t0 = Date.now();
+			assert.deepStrictEqual(await km.ask('generate', {keyname: 'h', type: 'HMACSHA1', size}),
+				{errorText: 'Need valid size parameter', errorCode: -1, exception: '[object Object]', returnValue: false},
+				JSON.stringify(size));
+			assert.ok(Date.now() - t0 < 1000);
+		}
+		assert.deepStrictEqual(await km.ask('generate', {keyname: 'h', type: 'HMACSHA1', size: 20}), {returnValue: true});
+	} finally {
+		km.cleanup();
+	}
+});

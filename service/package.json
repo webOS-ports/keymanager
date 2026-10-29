@@ -1,0 +1,10 @@
+{
+	"name": "com.palm.keymanager",
+	"version": "1.0.0",
+	"description": "Keymanager: keeps keys and credentials, encrypted under the device's master key",
+	"main": "service.js",
+	"private": true,
+	"engines": { "node": ">=22" },
+	"scripts": { "test": "node --test ../test/*.test.js" },
+	"license": "Apache-2.0"
+}

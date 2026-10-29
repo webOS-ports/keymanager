@@ -144,23 +144,27 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 	const store = {
 		HANG,
 
-		/* A deep copy, as the old one made it: own property names, a Buffer
-		   copied, any other object (an array too, and null, which throws)
-		   copied the same way. */
+		/* A deep copy of a record: a Buffer copied, an array as an array, null
+		   as null. K2: the old one copied every object property by property, so
+		   an array came back as {"0": .., "length": n}, and null, which is an
+		   object to typeof, threw "Cannot convert undefined or null to object":
+		   a key stored with nohide: null could not be read again. */
 		copyKey(dest, from) {
-			const props = Object.getOwnPropertyNames(from);
-			props.forEach(function (name) {
-				if (!dest[name]) {
-					if (Buffer.isBuffer(from[name])) {
-						dest[name] = Buffer.alloc(from[name].length);
-						from[name].copy(dest[name]);
-					} else if (typeof from[name] === 'object') {
-						dest[name] = store.copyKey({}, from[name]);
-					} else {
-						dest[name] = from[name];
-					}
+			const copy = v => {
+				if (Buffer.isBuffer(v)) {
+					return Buffer.from(v);
 				}
-			});
+				if (Array.isArray(v)) {
+					return v.map(copy);
+				}
+				if (v && typeof v === 'object') {
+					return store.copyKey({}, v);
+				}
+				return v;
+			};
+			for (const name of Object.keys(from)) {
+				set(dest, name, copy(from[name]));
+			}
 			return dest;
 		},
 

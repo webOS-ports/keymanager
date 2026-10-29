@@ -49,3 +49,22 @@ test('K1: keys and apps named after what every object has are ordinary keys and 
 		km.cleanup();
 	}
 });
+
+test('K2: a key stored with null or an array in it reads back as it was stored', async () => {
+	const km = await boot();
+	try {
+		await km.ask('store', {keyname: 'n', keydata: 'null-case', type: 'ASCIIBLOB', nohide: null});
+		await km.ask('store', {keyname: 'a', keydata: 'array-case', type: 'ASCIIBLOB', nohide: [1, 2]});
+		assert.deepStrictEqual(await km.ask('keyInfo', {keyname: 'n'}),
+			{keyname: 'n', type: 'ASCIIBLOB', nohide: null, noexport: false, returnValue: true});
+		assert.deepStrictEqual(await km.ask('fetchKey', {keyname: 'a'}),
+			{keyname: 'a', keydata: 'array-case', type: 'ASCIIBLOB', nohide: [1, 2], noexport: false, returnValue: true});
+		// And after a restart, from what is on disk.
+		km.stop();
+		const again = await boot({dir: km.dir});
+		assert.deepStrictEqual((await again.ask('keyInfo', {keyname: 'n'})).nohide, null);
+		again.stop();
+	} finally {
+		km.cleanup();
+	}
+});

@@ -89,7 +89,8 @@ test('the caller: the app id without its pid, else the service name; fetchKey sa
 		assert.strictEqual((await km.ask('fetchKey', {keyname: 'k'}, {appId: '', service: 'org.example.svc'})).keydata,
 			'two-test');
 		assert.deepStrictEqual(await km.ask('keyInfo', {keyname: 'k'}, {}), minusOne('Could not determine appId.'));
-		assert.deepStrictEqual(await km.ask('fetchKey', {keyname: 'k'}, {}), noCode('Could not determine appId.'));
+		// The old fetchKey's was -9999 (K8).
+		assert.deepStrictEqual(await km.ask('fetchKey', {keyname: 'k'}, {}), minusOne('Could not determine appId.'));
 	} finally {
 		km.cleanup();
 	}

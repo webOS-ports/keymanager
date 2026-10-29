@@ -52,11 +52,11 @@ function getAppId(msg) {
 	return appId;
 }
 
-function needAppId(ctx, errorKey) {
+function needAppId(ctx) {
 	const appId = getAppId(ctx.msg);
 	if (!appId) {
-		// fetchKey's said "erroCode", so it went out with -9999.
-		raise({[errorKey || 'errorCode']: -1, message: 'Could not determine appId.'});
+		// K8: fetchKey's said "erroCode", so it went out with -9999.
+		raise({errorCode: -1, message: 'Could not determine appId.'});
 	}
 	return appId;
 }
@@ -230,7 +230,7 @@ function createCommands({keyStore: ks, log = console}) {
 		},
 
 		fetchKey(args, ctx) {
-			const appId = needAppId(ctx, 'erroCode');
+			const appId = needAppId(ctx);
 			const result = ks.getKeyDecryptedByName(appId, args.keyname);
 			if (result.returnValue === true) {
 				return result;

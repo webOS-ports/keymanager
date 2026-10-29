@@ -185,3 +185,15 @@ test('K7: importKeystore goes on past an entry it cannot import, and names it as
 		km.cleanup();
 	}
 });
+
+test('K8: fetchKey without an app id answers errorCode -1, as the other methods do', async () => {
+	const km = await boot();
+	try {
+		const want = {errorText: 'Could not determine appId.', errorCode: -1, exception: '[object Object]', returnValue: false};
+		for (const m of ['fetchKey', 'keyInfo']) {
+			assert.deepStrictEqual(await km.ask(m, {keyname: 'k'}, {}), want, m);
+		}
+	} finally {
+		km.cleanup();
+	}
+});

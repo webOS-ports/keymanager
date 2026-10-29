@@ -1,0 +1,51 @@
+// Copyright (c) 2026 Herman van Hazendonk
+// SPDX-License-Identifier: Apache-2.0
+
+'use strict';
+
+/*
+	The old service's bugs (README.md, K1-K8), one test each; every one of
+	them fails on the rewrite as it first was, which answered as the old
+	service did.
+*/
+
+const test = require('node:test');
+const assert = require('node:assert');
+const crypto = require('crypto');
+const {boot} = require('./boot');
+
+// An exportKeystore envelope around any JSON text, as a backup made elsewhere could be.
+function envelope(passphrase, text) {
+	const salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+	const key = crypto.scryptSync(passphrase, salt, 32, {N: 16384, r: 8, p: 1});
+	const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+	const body = Buffer.concat([c.update(Buffer.from(text, 'utf-8')), c.final()]);
+	return {version: 1, kdf: 'scrypt', kdfParams: {N: 16384, r: 8, p: 1}, cipher: 'aes-256-gcm',
+		salt: salt.toString('base64'), iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'),
+		ciphertext: body.toString('base64')};
+}
+
+test('K1: keys and apps named after what every object has are ordinary keys and apps', async () => {
+	const km = await boot();
+	try {
+		for (const name of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
+			assert.deepStrictEqual(await km.ask('store', {keyname: name, keydata: 'v-' + name, type: 'ASCIIBLOB', nohide: true}),
+				{returnValue: true}, name);
+			assert.strictEqual((await km.ask('fetchKey', {keyname: name})).keydata, 'v-' + name);
+			assert.strictEqual((await km.ask('keyInfo', {keyname: name})).returnValue, true);
+		}
+		assert.strictEqual((await km.ask('keyInfo', {keyname: 'isPrototypeOf'})).errorText,
+			'MojoService: no errorCode supplied Key not found');
+		const text = '{"__proto__": {"polluted": {"keyname": "polluted", "type": "ASCIIBLOB", "keydata": "p-1", "nohide": true}},' +
+			' "hasOwnProperty": {"k": {"keyname": "k", "type": "ASCIIBLOB", "keydata": "p-2", "nohide": true}}}';
+		const r = await km.ask('importKeystore', {passphrase: 'pp', keystore: envelope('pp', text)});
+		assert.deepStrictEqual(r, {returnValue: true, imported: 2, skipped: 0, failed: [],
+			namespaces: ['__proto__', 'hasOwnProperty']});
+		assert.strictEqual(({}).polluted, undefined);
+		const ex = await km.ask('exportKeystore', {passphrase: 'pp'});
+		assert.strictEqual(ex.count, 7);
+		assert.strictEqual((await km.ask('fetchKey', {keyname: 'polluted'}, {appId: '__proto__'})).keydata, 'p-1');
+	} finally {
+		km.cleanup();
+	}
+});

@@ -33,6 +33,17 @@ const nodeCrypto = require('crypto');
 const KeymanagerCrypto = require('./crypto');
 
 const HANG = Symbol('no reply');
+
+/* K1: a key or an app is only what the store itself holds. A plain
+   object answers for names it inherits (toString, constructor,
+   hasOwnProperty, __proto__, ...), so obj[name] took those for keys, and
+   assigning to "__proto__" set the prototype instead. These read and
+   write own properties only; what JSON.stringify writes is unchanged. */
+const own = (obj, k) => obj !== null && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, k);
+const get = (obj, k) => own(obj, k) ? obj[k] : undefined;
+function set(obj, k, v) {
+	Object.defineProperty(obj, k, {value: v, writable: true, enumerable: true, configurable: true});
+}
 const MODE = 384; // 0600
 
 function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
@@ -154,9 +165,9 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 		},
 
 		getKeyRawByName(appid, keyname) {
-			const appStore = database[appid];
-			if (appStore && appStore[keyname]) {
-				const key = store.copyKey({}, appStore[keyname]);
+			const record = get(get(database, appid), keyname);
+			if (record) {
+				const key = store.copyKey({}, record);
 				if (!Buffer.isBuffer(key.keydata)) {
 					key.keydata = Buffer.from(key.keydata.data);
 				}
@@ -190,12 +201,12 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 			if (!appid || !key || !key.keyname) {
 				return {returnValue: false, message: 'Need appid, key and keyname.'};
 			}
-			let appstore = database[appid];
+			let appstore = get(database, appid);
 			if (!appstore) {
 				appstore = {};
-				database[appid] = appstore;
+				set(database, appid, appstore);
 			}
-			if (appstore[key.keyname]) {
+			if (get(appstore, key.keyname)) {
 				return {returnValue: false, message: 'Key already exists.'};
 			}
 			const cData = key.type === 'ASCIIBLOB' ? Buffer.from(key.keydata, 'utf-8') : Buffer.from(key.keydata, 'base64');
@@ -205,14 +216,14 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 				return {returnValue: false, errorTest: 'Could not encrypt key.'};
 			}
 			key.keydata = result.data;
-			appstore[key.keyname] = key;
+			set(appstore, key.keyname, key);
 			saveDB();
 			return {returnValue: true};
 		},
 
 		deleteKey(appid, keyname) {
-			const appstore = database[appid];
-			if (appstore && appstore[keyname]) {
+			const appstore = get(database, appid);
+			if (get(appstore, keyname)) {
 				delete appstore[keyname];
 				saveDB();
 				return {returnValue: true};
@@ -222,12 +233,12 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 
 		// One key, decrypted, from the caller's own app.
 		exportKey(appid, keyname) {
-			const appStore = database[appid];
-			if (!appStore || !appStore[keyname]) {
+			const record = get(get(database, appid), keyname);
+			if (!record) {
 				return {returnValue: false, message: 'Key not found'};
 			}
 			try {
-				return {returnValue: true, key: exportRecord(keyname, appStore[keyname])};
+				return {returnValue: true, key: exportRecord(keyname, record)};
 			} catch (e) {
 				return {returnValue: false, message: e.message};
 			}
@@ -235,14 +246,13 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 
 		// A key's plaintext bytes, for wrapping; null when missing or unreadable.
 		keyMaterial(appid, keyname) {
-			const appStore = database[appid];
-			if (!appStore || !appStore[keyname]) {
+			const record = get(get(database, appid), keyname);
+			if (!record) {
 				return null;
 			}
 			try {
 				return KeymanagerCrypto.decrypt(masterkey,
-					Buffer.isBuffer(appStore[keyname].keydata) ? appStore[keyname].keydata :
-						Buffer.from(appStore[keyname].keydata.data));
+					Buffer.isBuffer(record.keydata) ? record.keydata : Buffer.from(record.keydata.data));
 			} catch (e) {
 				say('Cannot read ' + appid + '/' + keyname + ':', e.message);
 				return null;
@@ -251,12 +261,12 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 
 		// Which of this app's keys has the fingerprint, if any.
 		findKeyByFingerprint(appid, fingerprint) {
-			const appStore = database[appid];
+			const appStore = get(database, appid);
 			if (!appStore) {
 				return null;
 			}
 			for (const keyname in appStore) {
-				if (appStore.hasOwnProperty(keyname)) {
+				if (own(appStore, keyname)) {
 					const material = store.keyMaterial(appid, keyname);
 					if (material && KeymanagerCrypto.keyFingerprint(material) === fingerprint) {
 						return {keyname, material};
@@ -270,8 +280,8 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 			if (!appid || !key || !key.keyname) {
 				return {returnValue: false, message: 'Need appid and a key with a keyname.'};
 			}
-			const appStore = database[appid];
-			if (appStore && appStore[key.keyname]) {
+			const appStore = get(database, appid);
+			if (get(appStore, key.keyname)) {
 				if (!overwrite) {
 					return {returnValue: false, message: 'Key already exists.'};
 				}
@@ -295,10 +305,10 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 			const excluded = [];
 			try {
 				for (const appid in database) {
-					if (database.hasOwnProperty(appid)) {
+					if (own(database, appid)) {
 						const appStore = database[appid];
 						for (const keyname in appStore) {
-							if (appStore.hasOwnProperty(keyname)) {
+							if (own(appStore, keyname)) {
 								const record = appStore[keyname];
 								if (record.noexport === true) {
 									excluded.push(appid + '/' + keyname);
@@ -312,10 +322,10 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 									failed.push(appid + '/' + keyname);
 									continue;
 								}
-								if (!out[appid]) {
-									out[appid] = {};
+								if (!own(out, appid)) {
+									set(out, appid, {});
 								}
-								out[appid][keyname] = plain;
+								set(out[appid], keyname, plain);
 								count += 1;
 							}
 						}
@@ -336,16 +346,16 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 			let imported = 0;
 			let skipped = 0;
 			const failed = [];
-			const namespaces = {};
+			const namespaces = Object.create(null);
 			let inThen = false;
 
 			if (!keys || typeof keys !== 'object') {
 				return {returnValue: false, message: 'No keys to import.'};
 			}
 			for (const appid in keys) {
-				if (keys.hasOwnProperty(appid)) {
+				if (own(keys, appid)) {
 					for (const keyname in keys[appid]) {
-						if (keys[appid].hasOwnProperty(keyname)) {
+						if (Object.prototype.hasOwnProperty.call(keys[appid], keyname)) {
 							pending.push({appid, key: keys[appid][keyname]});
 						}
 					}
@@ -354,8 +364,8 @@ function createKeyStore({dir = '/var/palm/keystore/', log = console} = {}) {
 
 			for (const entry of pending) {
 				try {
-					const appStore = database[entry.appid];
-					const exists = appStore && appStore[entry.key.keyname];
+					const appStore = get(database, entry.appid);
+					const exists = get(appStore, entry.key.keyname);
 					if (exists && !overwrite) {
 						skipped += 1;
 						continue;

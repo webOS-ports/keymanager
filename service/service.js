@@ -1,5 +1,5 @@
-// Copyright (c) 2014 Achim Königs, 2026 Herman van Hazendonk
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Herman van Hazendonk
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 'use strict';
 

@@ -1,5 +1,11 @@
-// Copyright (c) 2014 Achim Königs, 2026 Herman van Hazendonk
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Herman van Hazendonk
+// Derived from the old service's assistants (CryptAssistant.js, ExportAssistant.js,
+// ExportKeystoreAssistant.js, FetchKeyAssistant.js, GenerateAssistant.js,
+// ImportAssistant.js, ImportKeystoreAssistant.js, KeyInfoAssistant.js,
+// RemoveAssistant.js, StoreAssistant.js) and utils/Common.js,
+// Copyright (c) 2014 Achim Königs <garfonso@tratschtante.de>, licensed under the
+// Apache License, Version 2.0.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 'use strict';
 
